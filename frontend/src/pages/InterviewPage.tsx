@@ -190,10 +190,18 @@ const InterviewPage: React.FC = () => {
 
   const handleBinaryMessage = useCallback(
     async (buffer: ArrayBuffer) => {
+      console.log("[ARIA audio] received binary frame:", buffer.byteLength, "bytes");
+      if (buffer.byteLength === 0) {
+        console.warn("[ARIA audio] empty audio buffer — TTS may have failed on backend");
+        return;
+      }
       setIsSpeaking(true);
       setIsThinking(false);
       try {
         await playAudio(buffer);
+        console.log("[ARIA audio] playback finished");
+      } catch (err) {
+        console.error("[ARIA audio] playback error:", err);
       } finally {
         setIsSpeaking(false);
       }

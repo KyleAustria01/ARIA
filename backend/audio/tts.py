@@ -3,18 +3,16 @@
 Text-to-speech (TTS) utilities for ARIA AI Interview System.
 
 ElevenLabs is the primary provider (natural voice).
-Falls back to pyttsx3 (offline, robotic) when the API key is missing
-or if the ElevenLabs request fails.
+Falls back to edge-tts (Microsoft Edge TTS, free, no API key) when
+the ElevenLabs key is missing or the request fails.
 """
 
-import asyncio
+import io
 import logging
-import os
-import tempfile
 from typing import Optional
 
+import edge_tts
 import httpx
-import pyttsx3
 
 from backend.config import settings
 
@@ -28,7 +26,7 @@ _ELEVENLABS_TIMEOUT = 30.0  # seconds
 async def _elevenlabs_synthesize(text: str) -> Optional[bytes]:
     """Call ElevenLabs TTS API and return raw MPEG audio bytes.
 
-    Returns None on any failure so the caller can fall back to pyttsx3.
+    Returns None on any failure so the caller can fall back to edge-tts.
     """
     api_key = settings.elevenlabs_api_key
     voice_id = settings.elevenlabs_voice_id
@@ -60,55 +58,33 @@ async def _elevenlabs_synthesize(text: str) -> Optional[bytes]:
             )
             return audio
     except Exception as exc:
-        logger.warning("ElevenLabs TTS failed, falling back to pyttsx3: %s", exc)
+        logger.warning("ElevenLabs TTS failed, falling back to edge-tts: %s", exc)
         return None
 
 
-# ── pyttsx3 offline fallback ──────────────────────────────────────────
-def _pyttsx3_synthesize(text: str) -> bytes:
-    """Render *text* to WAV bytes using pyttsx3 (blocking).
+# ── edge-tts fallback (free, no API key) ──────────────────────────────
+# Uses the same TTS engine as Microsoft Edge Read Aloud.
+_EDGE_VOICE = "en-US-JennyNeural"  # Natural female voice
 
-    Initialises a fresh engine per call to avoid multi-thread issues.
-    """
-    engine = pyttsx3.init()
-    tmp_path: str = ""
-    try:
-        engine.setProperty("rate", 160)
-        engine.setProperty("volume", 1.0)
 
-        voices = engine.getProperty("voices") or []
-        for voice in voices:
-            name_lower = (voice.name or "").lower()
-            if "zira" in name_lower or "female" in name_lower:
-                engine.setProperty("voice", voice.id)
-                break
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp_path = tmp.name
-
-        engine.save_to_file(text, tmp_path)
-        engine.runAndWait()
-
-        with open(tmp_path, "rb") as f:
-            return f.read()
-    finally:
-        try:
-            engine.stop()
-        except Exception:
-            pass
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+async def _edge_tts_synthesize(text: str) -> bytes:
+    """Render *text* to MP3 bytes using edge-tts (async, no key needed)."""
+    communicate = edge_tts.Communicate(text, _EDGE_VOICE)
+    buffer = io.BytesIO()
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            buffer.write(chunk["data"])
+    audio_bytes = buffer.getvalue()
+    logger.debug("edge-tts: %d chars → %d bytes", len(text), len(audio_bytes))
+    return audio_bytes
 
 
 # ── Public API ────────────────────────────────────────────────────────
 async def synthesize(text: str) -> bytes:
     """Convert text to speech audio bytes (non-blocking).
 
-    Tries ElevenLabs first; falls back to pyttsx3 on failure.
-    Returns MP3 bytes from ElevenLabs or WAV bytes from pyttsx3.
+    Tries ElevenLabs first; falls back to edge-tts on failure.
+    Returns MP3 bytes from either provider.
     """
     if not text or not text.strip():
         return b""
@@ -120,11 +96,13 @@ async def synthesize(text: str) -> bytes:
     if audio:
         return audio
 
-    # Fallback to pyttsx3
+    # Fallback to edge-tts (free, works on any server)
     try:
-        audio_bytes = await asyncio.to_thread(_pyttsx3_synthesize, clean)
-        logger.debug("pyttsx3 TTS: %d chars → %d bytes", len(clean), len(audio_bytes))
-        return audio_bytes
+        audio_bytes = await _edge_tts_synthesize(clean)
+        if audio_bytes:
+            return audio_bytes
     except Exception as exc:
-        logger.error("TTS synthesis failed entirely: %s", exc)
-        return b""
+        logger.error("edge-tts synthesis failed: %s", exc)
+
+    logger.error("TTS synthesis failed entirely for: %s", clean[:50])
+    return b""

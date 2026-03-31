@@ -86,6 +86,7 @@ export function useAudio(): UseAudioReturn {
   }, []);
 
   const playAudio = useCallback(async (buffer: ArrayBuffer): Promise<void> => {
+    console.log("[useAudio] playAudio called, buffer size:", buffer.byteLength);
     // Clean up previous playback
     if (audioElRef.current) {
       audioElRef.current.pause();
@@ -101,6 +102,7 @@ export function useAudio(): UseAudioReturn {
     const isMP3 = (header[0] === 0xFF && (header[1] & 0xE0) === 0xE0) ||
                   (header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33); // "ID3"
     const mime = isMP3 ? "audio/mpeg" : "audio/wav";
+    console.log("[useAudio] detected MIME:", mime, "header bytes:", Array.from(header));
 
     const blob = new Blob([buffer], { type: mime });
     const url = URL.createObjectURL(blob);
