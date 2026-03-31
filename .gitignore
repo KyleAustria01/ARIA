@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+*.env
+.env
+.env.*
+!.env.example
+*.sqlite3
+*.db
+instance/
+*.egg-info/
+dist/
+build/
+
+# VSCode
+.vscode/
+
+# Node
+node_modules/
+
+# React
+frontend/build/
+frontend/dist/
+
+# Test/coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Misc
+*.swp
+*.bak
+*.tmp
+uploads/
+
+# GitHub
+!.github/

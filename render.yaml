@@ -1,0 +1,31 @@
+services:
+  # ── ARIA Backend (FastAPI) ────────────────────────────────────────────────
+  - type: web
+    name: aria-backend
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile.backend
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/docs
+
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: REDIS_URL
+        sync: false # set manually in Render dashboard (Upstash URL)
+      - key: FRONTEND_URL
+        sync: false # your Vercel app URL e.g. https://aria-xyz.vercel.app
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false

@@ -1,0 +1,19 @@
+/* ═══════════════════════════════════════════════════════
+   WaveformVisualizer — Blue-glow audio bars
+   ═══════════════════════════════════════════════════════ */
+
+.container {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 36px;
+}
+
+.bar {
+  width: 4px;
+  height: 4px;
+  background: #3b82f6;
+  border-radius: 2px;
+  transition: height 0.08s ease;
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+}

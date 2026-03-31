@@ -1,0 +1,183 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  user-select: none;
+}
+
+/* ── Orb container ─────────────────────────────────────── */
+.orb {
+  position: relative;
+  width: 140px;
+  height: 140px;
+}
+
+.orbSvg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ── Outer ring (state-colored) ────────────────────────── */
+.ring {
+  fill: none;
+  stroke-width: 2.5;
+  stroke: var(--accent, #6366f1);
+  transition: stroke 0.4s, filter 0.4s;
+}
+
+.idle .ring {
+  stroke: #6366f1;
+  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.3));
+}
+
+.speaking .ring {
+  stroke: #22d3ee;
+  filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.4));
+  animation: ringPulse 1.4s ease-in-out infinite;
+}
+
+.thinking .ring {
+  stroke: #f59e0b;
+  filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.35));
+  animation: ringRotate 3s linear infinite;
+  transform-origin: 70px 70px;
+}
+
+.complete .ring {
+  stroke: #10b981;
+  filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.45));
+}
+
+/* ── Core gradient circle ──────────────────────────────── */
+.core {
+  transition: opacity 0.3s;
+}
+
+/* ── Waveform bars (visible when speaking) ─────────────── */
+.waveGroup {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.speaking .waveGroup {
+  opacity: 1;
+}
+
+.waveBar {
+  fill: #22d3ee;
+  rx: 1.5;
+}
+
+.waveBar:nth-child(1) { animation: waveAnim 0.8s ease-in-out 0s infinite alternate; }
+.waveBar:nth-child(2) { animation: waveAnim 0.8s ease-in-out 0.1s infinite alternate; }
+.waveBar:nth-child(3) { animation: waveAnim 0.8s ease-in-out 0.2s infinite alternate; }
+.waveBar:nth-child(4) { animation: waveAnim 0.8s ease-in-out 0.3s infinite alternate; }
+.waveBar:nth-child(5) { animation: waveAnim 0.8s ease-in-out 0.15s infinite alternate; }
+
+/* ── Thinking dots (orbit around center) ───────────────── */
+.thinkGroup {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.thinking .thinkGroup {
+  opacity: 1;
+  animation: ringRotate 2.5s linear infinite;
+  transform-origin: 70px 70px;
+}
+
+.thinkDot {
+  fill: #f59e0b;
+}
+
+/* ── Complete checkmark ────────────────────────────────── */
+.checkGroup {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.complete .checkGroup {
+  opacity: 1;
+}
+
+.checkPath {
+  fill: none;
+  stroke: #10b981;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 30;
+  stroke-dashoffset: 30;
+}
+
+.complete .checkPath {
+  animation: drawCheck 0.5s ease forwards 0.2s;
+}
+
+/* ── Particles (idle floating dots) ────────────────────── */
+.particle {
+  fill: rgba(99, 102, 241, 0.4);
+  animation: float 4s ease-in-out infinite;
+}
+
+.particle:nth-child(2) { animation-delay: 0.7s; fill: rgba(99, 102, 241, 0.3); }
+.particle:nth-child(3) { animation-delay: 1.4s; fill: rgba(99, 102, 241, 0.25); }
+.particle:nth-child(4) { animation-delay: 2.1s; fill: rgba(99, 102, 241, 0.35); }
+.particle:nth-child(5) { animation-delay: 2.8s; fill: rgba(99, 102, 241, 0.2); }
+.particle:nth-child(6) { animation-delay: 0.3s; fill: rgba(99, 102, 241, 0.3); }
+
+.speaking .particle { fill: rgba(34, 211, 238, 0.3); }
+.thinking .particle { fill: rgba(245, 158, 11, 0.25); }
+.complete .particle { fill: rgba(16, 185, 129, 0.3); }
+
+/* ── Label ─────────────────────────────────────────────── */
+.label {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  fill: #c7d2fe;
+  text-anchor: middle;
+  dominant-baseline: central;
+  transition: fill 0.3s;
+}
+
+.speaking .label { fill: #a5f3fc; }
+.thinking .label { fill: #fde68a; }
+.complete .label { fill: #6ee7b7; }
+
+/* ── Status text below ─────────────────────────────────── */
+.status {
+  color: var(--text-sub, #9ca3af);
+  font-size: 0.85rem;
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ── Keyframes ─────────────────────────────────────────── */
+@keyframes ringPulse {
+  0%, 100% { stroke-width: 2.5; opacity: 1; }
+  50% { stroke-width: 4; opacity: 0.85; }
+}
+
+@keyframes ringRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes waveAnim {
+  0% { height: 4px; y: 66px; }
+  100% { height: 22px; y: 55px; }
+}
+
+@keyframes drawCheck {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.5; }
+  50% { transform: translateY(-6px) scale(1.3); opacity: 1; }
+}

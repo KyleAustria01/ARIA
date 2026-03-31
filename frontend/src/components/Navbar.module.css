@@ -1,0 +1,182 @@
+/* ═══════════════════════════════════════════════════════════
+   Navbar — HireByte enterprise style (inside white card)
+   ═══════════════════════════════════════════════════════════ */
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  height: 56px;
+  background: var(--bg-container, var(--bg-card));
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+
+/* ── Left ──────────────────────────────────────────────── */
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.logoLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+/* Two overlapping circles — HireByte dot style */
+.logoDots {
+  position: relative;
+  width: 28px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.dotIndigo {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.dotPurple {
+  position: absolute;
+  left: 10px;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-purple, #8b5cf6);
+  opacity: 0.8;
+}
+
+.logoText {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+
+/* ── Nav links ─────────────────────────────────────────── */
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.navLink {
+  position: relative;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  transition: color 0.2s, background 0.15s;
+}
+
+.navLink:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.navLinkActive {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.navLinkActive::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: 14px;
+  right: 14px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ── Right ─────────────────────────────────────────────── */
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.15s;
+  padding: 0;
+}
+
+.iconBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--accent-light);
+  border: none;
+  border-radius: 50%;
+  font-size: 0.78rem;
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+  padding: 0;
+}
+
+.avatar:hover {
+  background: var(--accent-soft, #e0e7ff);
+  transform: scale(1.05);
+}
+
+/* ── Responsive ────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .navbar {
+    padding: 0 14px;
+  }
+
+  .left {
+    gap: 16px;
+  }
+
+  .navLink {
+    font-size: 0.8rem;
+    padding: 6px 10px;
+  }
+
+  .navLinkActive::after {
+    left: 10px;
+    right: 10px;
+  }
+}

@@ -1,0 +1,290 @@
+.interviewRoot {
+  min-height: 100vh;
+  background: #0f0f0f;
+  color: #fff;
+  font-family: var(--font-main, system-ui, sans-serif);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 2rem;
+}
+
+.ariaAvatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 60%, #18181b 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2rem auto 1rem auto;
+  font-size: 2.5rem;
+  color: #fff;
+  box-shadow: 0 2px 16px 0 rgba(99,102,241,0.18);
+  position: relative;
+}
+.ariaSpeaking {
+  box-shadow: 0 0 0 8px #6366f133, 0 0 0 16px #6366f122;
+  animation: pulse 1.2s infinite;
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 8px #6366f133, 0 0 0 16px #6366f122; }
+  50% { box-shadow: 0 0 0 16px #6366f144, 0 0 0 32px #6366f122; }
+  100% { box-shadow: 0 0 0 8px #6366f133, 0 0 0 16px #6366f122; }
+}
+
+.welcomeCard {
+  background: #18181b;
+  border-radius: 16px;
+  padding: 2.5rem 2rem 2rem 2rem;
+  max-width: 420px;
+  margin: 2rem auto 0 auto;
+  box-shadow: 0 2px 16px 0 rgba(0,0,0,0.12);
+  text-align: center;
+}
+.role {
+  color: #6366f1;
+  font-weight: 600;
+  margin-bottom: 1.2rem;
+  font-size: 1.1rem;
+}
+.resumeUpload {
+  margin: 1.5rem 0 1.2rem 0;
+  padding: 1.5rem 1rem;
+  background: #111113;
+  border: 2px dashed #6366f1;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: border 0.2s;
+}
+.resumeUploaded {
+  border: 2px solid #22d3ee;
+  background: #18181b;
+}
+.uploadLabel {
+  color: #9ca3af;
+  font-size: 1rem;
+  margin-bottom: 0.7rem;
+}
+.fileName {
+  color: #6366f1;
+  font-size: 1.05rem;
+  margin-top: 0.5rem;
+  word-break: break-all;
+}
+.uploadBtn {
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7em 2em;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.uploadBtn:disabled {
+  background: #3730a3;
+  cursor: not-allowed;
+}
+.successCheck {
+  color: #22d3ee;
+  font-size: 2rem;
+  margin-top: 0.7rem;
+}
+.startBtn {
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.9em 2.5em;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-top: 2rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.startBtn:disabled {
+  background: #3730a3;
+  cursor: not-allowed;
+}
+
+.interviewCard {
+  background: #18181b;
+  border-radius: 16px;
+  padding: 2rem 1.5rem 1.5rem 1.5rem;
+  max-width: 520px;
+  margin: 2rem auto 0 auto;
+  box-shadow: 0 2px 16px 0 rgba(0,0,0,0.12);
+  text-align: center;
+}
+.question {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 1.2rem;
+}
+.status {
+  color: #9ca3af;
+  font-size: 1.05rem;
+  margin-bottom: 1.2rem;
+}
+.micBtn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #23232b;
+  border: 3px solid #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 1.2rem auto 0 auto;
+  font-size: 2.5rem;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, border 0.2s;
+  position: relative;
+}
+.micIdle {
+  background: #23232b;
+  border-color: #6366f1;
+}
+.micRecording {
+  background: #b91c1c;
+  border-color: #f87171;
+  animation: pulseMic 1.2s infinite;
+}
+@keyframes pulseMic {
+  0% { box-shadow: 0 0 0 0 #f8717133; }
+  50% { box-shadow: 0 0 0 12px #f8717122; }
+  100% { box-shadow: 0 0 0 0 #f8717133; }
+}
+.waveform {
+  width: 100%;
+  height: 36px;
+  margin: 1rem 0 0.5rem 0;
+  background: #23232b;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.submitBtn {
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.7em 2em;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1.2rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.submitBtn:disabled {
+  background: #3730a3;
+  cursor: not-allowed;
+}
+.transcript {
+  margin-top: 2.5rem;
+  background: #111113;
+  border-radius: 10px;
+  padding: 1.2rem 1rem;
+  max-width: 520px;
+  color: #9ca3af;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  box-shadow: 0 2px 8px 0 rgba(0,0,0,0.08);
+}
+.transcriptQ {
+  color: #6366f1;
+  font-weight: 600;
+}
+.transcriptA {
+  color: #fff;
+  font-weight: 400;
+}
+
+.verdictCard {
+  background: #18181b;
+  border-radius: 16px;
+  padding: 2.5rem 2rem 2rem 2rem;
+  max-width: 420px;
+  margin: 2.5rem auto 0 auto;
+  box-shadow: 0 2px 16px 0 rgba(0,0,0,0.12);
+  text-align: center;
+}
+.verdictHeading {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1.2rem;
+}
+.verdictBadge {
+  display: inline-block;
+  padding: 0.5em 1.5em;
+  border-radius: 16px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 1.2rem;
+}
+.badgeGreen {
+  background: #22c55e;
+  color: #fff;
+}
+.badgeYellow {
+  background: #fde047;
+  color: #18181b;
+}
+.badgeRed {
+  background: #ef4444;
+  color: #fff;
+}
+.scoreBar {
+  width: 100%;
+  height: 16px;
+  background: #23232b;
+  border-radius: 8px;
+  margin: 1.2rem 0 1.2rem 0;
+  overflow: hidden;
+}
+.scoreFill {
+  height: 100%;
+  background: #6366f1;
+  border-radius: 8px;
+  transition: width 0.5s;
+}
+.strengths, .concerns {
+  text-align: left;
+  margin: 1.2rem 0;
+}
+.sectionTitle {
+  color: #6366f1;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+.hiringRec {
+  margin-top: 1.5rem;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+@media (max-width: 600px) {
+  .welcomeCard, .interviewCard, .verdictCard, .transcript {
+    padding: 1.2rem 0.5rem 1rem 0.5rem;
+    max-width: 98vw;
+  }
+  .ariaAvatar {
+    width: 56px;
+    height: 56px;
+    font-size: 1.5rem;
+  }
+  .micBtn {
+    width: 60px;
+    height: 60px;
+    font-size: 1.5rem;
+  }
+}

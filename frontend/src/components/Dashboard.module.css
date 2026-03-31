@@ -1,0 +1,71 @@
+.dashboardRoot {
+  min-height: 100vh;
+  background: var(--bg-main);
+  color: var(--text-main);
+  font-family: var(--font-main);
+}
+
+.navbar {
+  width: 100%;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.2rem 2.5rem;
+  box-sizing: border-box;
+}
+
+.logo {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.userRole {
+  color: var(--text-sub);
+  font-size: 1rem;
+  margin-right: 0.5rem;
+}
+
+.logoutBtn {
+  background: var(--accent);
+  color: var(--text-main);
+  border: none;
+  border-radius: 6px;
+  padding: 0.5em 1.2em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.logoutBtn:hover {
+  background: #4f46e5;
+}
+
+.dashboardContent {
+  display: flex;
+  flex-direction: row;
+  gap: 2.5rem;
+  padding: 2.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .dashboardContent {
+    flex-direction: column;
+    gap: 2rem;
+    padding: 1.2rem;
+  }
+  .navbar {
+    padding: 1rem 1rem;
+  }
+}

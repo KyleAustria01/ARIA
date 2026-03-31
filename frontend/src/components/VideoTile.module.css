@@ -1,0 +1,185 @@
+/* ═══════════════════════════════════════════════════════
+   VideoTile — HireByte interview room tile
+   ═══════════════════════════════════════════════════════ */
+
+.tile {
+  position: relative;
+  background: var(--video-bg);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+}
+
+/* ── Live video ──────────────────────────────────────── */
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scaleX(-1);
+}
+
+/* ── Placeholder (camera off / loading / denied) ─────── */
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--video-bg);
+}
+
+/* Avatar initials */
+.initials {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-purple));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  user-select: none;
+  border: 2px solid rgba(99, 102, 241, 0.25);
+}
+
+/* ── Loading spinner ─────────────────────────────────── */
+
+.spinnerWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.spinnerIcon {
+  font-size: 1.8rem;
+  color: var(--accent);
+}
+
+.spinnerText {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* ── Permission denied ───────────────────────────────── */
+
+.deniedWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.deniedIcon {
+  font-size: 1.8rem;
+  color: var(--error);
+}
+
+.deniedText {
+  font-size: 0.85rem;
+  color: var(--error);
+  font-weight: 600;
+}
+
+.enableBtn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.enableBtn:hover {
+  background: var(--accent-hover);
+}
+
+/* ── Bottom-left label ───────────────────────────────── */
+
+.label {
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  background: var(--tile-label-bg);
+  color: var(--text-primary);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  z-index: 2;
+}
+
+/* ── Bottom-right camera toggle ──────────────────────── */
+
+.camToggle {
+  position: absolute;
+  bottom: 8px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.88rem;
+  cursor: pointer;
+  z-index: 2;
+  transition: background 0.2s, transform 0.15s;
+  backdrop-filter: blur(8px);
+}
+
+.camToggle:hover {
+  transform: scale(1.08);
+}
+
+.camOn {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.camOn:hover {
+  background: var(--accent-soft);
+}
+
+.camOff {
+  background: var(--error-light);
+  color: var(--error);
+}
+
+.camOff:hover {
+  background: var(--error-light);
+  opacity: 0.85;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .initials {
+    width: 56px;
+    height: 56px;
+    font-size: 1.3rem;
+  }
+
+  .camToggle {
+    width: 30px;
+    height: 30px;
+    font-size: 0.8rem;
+  }
+}
