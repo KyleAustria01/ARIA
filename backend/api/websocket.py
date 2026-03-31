@@ -73,9 +73,12 @@ async def _send_audio(ws: WebSocket, audio: bytes) -> None:
     """Send a binary audio frame, swallowing errors if connection is gone."""
     if audio:
         try:
+            logger.info("Sending %d bytes of TTS audio to client", len(audio))
             await ws.send_bytes(audio)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to send audio bytes: %s", exc)
+    else:
+        logger.warning("_send_audio called with empty audio — TTS likely failed")
 
 
 async def _send_debug(ws: WebSocket, state: "InterviewState", node_name: str) -> None:

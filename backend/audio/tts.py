@@ -94,12 +94,15 @@ async def synthesize(text: str) -> bytes:
     # Try ElevenLabs first
     audio = await _elevenlabs_synthesize(clean)
     if audio:
+        logger.info("TTS via ElevenLabs: %d bytes for %d chars", len(audio), len(clean))
         return audio
 
     # Fallback to edge-tts (free, works on any server)
+    logger.info("Trying edge-tts fallback for %d chars", len(clean))
     try:
         audio_bytes = await _edge_tts_synthesize(clean)
         if audio_bytes:
+            logger.info("TTS via edge-tts: %d bytes for %d chars", len(audio_bytes), len(clean))
             return audio_bytes
     except Exception as exc:
         logger.error("edge-tts synthesis failed: %s", exc)

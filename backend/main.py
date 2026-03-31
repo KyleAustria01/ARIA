@@ -65,3 +65,17 @@ async def health() -> dict:
     """Liveness check endpoint."""
     return {"status": "ok", "version": "2.0.0"}
 
+
+@app.get("/api/tts-test", tags=["health"])
+async def tts_test() -> dict:
+    """Test TTS pipeline — synthesize a short phrase and return stats."""
+    from backend.audio.tts import synthesize
+    text = "Hello, this is a test."
+    audio = await synthesize(text)
+    return {
+        "text": text,
+        "audio_bytes": len(audio),
+        "ok": len(audio) > 0,
+        "first_bytes": list(audio[:4]) if audio else [],
+    }
+
