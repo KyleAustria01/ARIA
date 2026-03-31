@@ -192,8 +192,11 @@ const InterviewPage: React.FC = () => {
     async (buffer: ArrayBuffer) => {
       setIsSpeaking(true);
       setIsThinking(false);
-      await playAudio(buffer);
-      setIsSpeaking(false);
+      try {
+        await playAudio(buffer);
+      } finally {
+        setIsSpeaking(false);
+      }
     },
     [playAudio]
   );

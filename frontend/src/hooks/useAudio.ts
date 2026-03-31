@@ -15,8 +15,8 @@ interface UseAudioReturn {
 export function useAudio(): UseAudioReturn {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
   const onStopRef = useRef<((buffer: ArrayBuffer) => void) | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const levelCtxRef = useRef<AudioContext | null>(null);
@@ -86,34 +86,65 @@ export function useAudio(): UseAudioReturn {
   }, []);
 
   const playAudio = useCallback(async (buffer: ArrayBuffer): Promise<void> => {
-    if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
-      audioCtxRef.current = new AudioContext();
+    // Clean up previous playback
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      audioElRef.current = null;
     }
-    const ctx = audioCtxRef.current;
-    try {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+
+    // Detect MIME: MP3 starts with 0xFF 0xFB/0xF3/0xF2 or ID3 tag
+    const header = new Uint8Array(buffer.slice(0, 3));
+    const isMP3 = (header[0] === 0xFF && (header[1] & 0xE0) === 0xE0) ||
+                  (header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33); // "ID3"
+    const mime = isMP3 ? "audio/mpeg" : "audio/wav";
+
+    const blob = new Blob([buffer], { type: mime });
+    const url = URL.createObjectURL(blob);
+    blobUrlRef.current = url;
+
+    const audio = new Audio(url);
+    audioElRef.current = audio;
+
+    return new Promise<void>((resolve) => {
       setIsPlaying(true);
-      const decoded = await ctx.decodeAudioData(buffer.slice(0));
-      const source = ctx.createBufferSource();
-      source.buffer = decoded;
-      source.connect(ctx.destination);
-      source.onended = () => {
-        sourceRef.current = null;
+      audio.onended = () => {
         setIsPlaying(false);
+        audioElRef.current = null;
+        URL.revokeObjectURL(url);
+        blobUrlRef.current = null;
+        resolve();
       };
-      sourceRef.current = source;
-      source.start(0);
-    } catch {
-      setIsPlaying(false);
-    }
+      audio.onerror = () => {
+        setIsPlaying(false);
+        audioElRef.current = null;
+        URL.revokeObjectURL(url);
+        blobUrlRef.current = null;
+        resolve();
+      };
+      audio.play().catch(() => {
+        setIsPlaying(false);
+        audioElRef.current = null;
+        URL.revokeObjectURL(url);
+        blobUrlRef.current = null;
+        resolve();
+      });
+    });
   }, []);
 
   const stopAll = useCallback(() => {
     // Stop any active playback
-    try { sourceRef.current?.stop(); } catch { /* already stopped */ }
-    sourceRef.current = null;
-    // Close the AudioContext so queued audio is discarded
-    try { audioCtxRef.current?.close(); } catch { /* ignore */ }
-    audioCtxRef.current = null;
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      audioElRef.current = null;
+    }
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
     setIsPlaying(false);
     // Tear down analyser
     cancelAnimationFrame(levelRafRef.current);
