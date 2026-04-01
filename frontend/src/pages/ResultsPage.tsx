@@ -43,10 +43,10 @@ interface SessionData {
 }
 
 const VERDICT_COLOR: Record<string, string> = {
-  "Strong Hire": "var(--success)",
-  Hire: "#6ee7b7",
-  Maybe: "#fbbf24",
-  "No Hire": "var(--error)",
+  "Highly Recommended": "var(--success)",
+  Recommended: "#60a5fa",
+  "Conditionally Recommended": "#fbbf24",
+  "Not Recommended": "var(--error)",
 };
 
 const ResultsPage: React.FC = () => {
@@ -57,7 +57,7 @@ const ResultsPage: React.FC = () => {
 
   useEffect(() => {
     if (!sessionId) { setError("No session ID"); setLoading(false); return; }
-    fetch(`/api/recruiter/session/${sessionId}`)
+    fetch(`/api/results/${sessionId}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Session not found (${r.status})`);
         return r.json();

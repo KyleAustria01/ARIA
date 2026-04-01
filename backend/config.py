@@ -41,9 +41,7 @@ class Settings(BaseSettings):
     # groq whisper uses groq_api_key above
     # faster-whisper runs locally — no key needed
 
-    # TTS — ElevenLabs (primary), pyttsx3 offline fallback
-    elevenlabs_api_key: str = Field("", env="ELEVENLABS_API_KEY")
-    elevenlabs_voice_id: str = Field("21m00Tcm4TlvDq8ikWAM", env="ELEVENLABS_VOICE_ID")
+    # TTS — edge-tts (free, no key needed)
 
     # Web search
     tavily_api_key: str = Field("", env="TAVILY_API_KEY")

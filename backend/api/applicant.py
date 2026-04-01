@@ -84,3 +84,31 @@ async def join_session(session_id: str) -> Dict[str, Any]:
 
     return {"status": "joined", "session_id": session_id}
 
+
+@router.get("/results/{session_id}")
+async def get_results(session_id: str) -> Dict[str, Any]:
+    """Return interview results for a completed session.
+
+    Args:
+        session_id: UUID hex string from the invite link.
+
+    Returns:
+        Session data including scores, verdict, and question breakdown.
+    """
+    data = await redis_client.get_json(f"session:{session_id}")
+    if not data:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+
+    return {
+        "session_id": session_id,
+        "candidate_name": data.get("candidate_name", "Candidate"),
+        "job_title": data.get("job_title", ""),
+        "company": data.get("company", ""),
+        "scores": data.get("scores", []),
+        "verdict": data.get("verdict", {}),
+        "is_complete": data.get("is_complete", False),
+        "question_count": data.get("question_count", 0),
+        "interview_started_at": data.get("interview_started_at", 0),
+        "interview_ended_at": data.get("interview_ended_at", 0),
+    }
+

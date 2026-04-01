@@ -545,3 +545,86 @@
     padding: 16px;
   }
 }
+
+/* ── Sessions Table ───────────────────────────────────── */
+.sessionsCard {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  margin-top: 24px;
+}
+
+.sessionsTable {
+  margin-top: 12px;
+}
+
+.sessionsHeader {
+  display: grid;
+  grid-template-columns: 1.5fr 1.5fr 1fr 0.7fr 0.5fr;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sessionsRow {
+  display: grid;
+  grid-template-columns: 1.5fr 1.5fr 1fr 0.7fr 0.5fr;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.05));
+}
+
+.sessionsRow:last-child {
+  border-bottom: none;
+}
+
+.sessionName {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.sessionRole {
+  color: var(--text-secondary);
+}
+
+.sessionStatus {
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 6px;
+  width: fit-content;
+}
+
+.sessionDone {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+
+.sessionPending {
+  background: rgba(234, 179, 8, 0.12);
+  color: #eab308;
+}
+
+.sessionScore {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sessionViewBtn {
+  font-size: 0.8rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.sessionViewBtn:hover {
+  text-decoration: underline;
+}

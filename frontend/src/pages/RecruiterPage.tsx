@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -13,6 +13,7 @@ import {
   faCircleCheck,
   faCircleXmark,
   faCloudArrowUp,
+  faListCheck,
 } from "@fortawesome/free-solid-svg-icons";
 import Navbar from "../components/Navbar";
 import { useChunkedUpload } from "../hooks/useChunkedUpload";
@@ -64,6 +65,20 @@ interface PrepareResult {
   context_preview: string;
 }
 
+interface SessionSummary {
+  session_id: string;
+  candidate_name: string;
+  job_title: string;
+  company: string;
+  is_complete: boolean;
+  question_count: number;
+  max_questions: number;
+  match_score: number;
+  interview_started_at: number;
+  interview_ended_at: number;
+  overall_score: number | null;
+}
+
 /* ── Component ─────────────────────────────────────────── */
 
 const tierColorMap: Record<string, string> = {
@@ -91,6 +106,15 @@ const RecruiterPage: React.FC = () => {
   const [prepareError, setPrepareError] = useState<string | null>(null);
   const [prepareResult, setPrepareResult] = useState<PrepareResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetch("/api/recruiter/sessions")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: SessionSummary[]) => setSessions(data))
+      .catch(() => {});
+  }, [prepareResult]);
 
   const extractPdf = (e: React.DragEvent): File | null => {
     e.preventDefault();
@@ -427,6 +451,40 @@ const RecruiterPage: React.FC = () => {
             <div className={styles.linkExpiry}>
               <FontAwesomeIcon icon={faClock} />
               Link expires in 24 hours
+            </div>
+          </div>
+        )}
+
+        {/* ── Recent Sessions ──────────────────────────── */}
+        {sessions.length > 0 && (
+          <div className={styles.sessionsCard}>
+            <div className={styles.cardHeader}>
+              <FontAwesomeIcon icon={faListCheck} className={styles.cardHeaderIcon} />
+              <h3 className={styles.cardHeaderTitle}>Recent Sessions</h3>
+            </div>
+            <div className={styles.sessionsTable}>
+              <div className={styles.sessionsHeader}>
+                <span>Candidate</span>
+                <span>Role</span>
+                <span>Status</span>
+                <span>Score</span>
+                <span></span>
+              </div>
+              {sessions.map((s) => (
+                <div key={s.session_id} className={styles.sessionsRow}>
+                  <span className={styles.sessionName}>{s.candidate_name}</span>
+                  <span className={styles.sessionRole}>{s.job_title}</span>
+                  <span className={`${styles.sessionStatus} ${s.is_complete ? styles.sessionDone : styles.sessionPending}`}>
+                    {s.is_complete ? "Complete" : s.question_count > 0 ? "In Progress" : "Pending"}
+                  </span>
+                  <span className={styles.sessionScore}>
+                    {s.overall_score != null ? `${s.overall_score.toFixed(1)}/10` : "—"}
+                  </span>
+                  <Link to={`/results/${s.session_id}`} className={styles.sessionViewBtn}>
+                    View
+                  </Link>
+                </div>
+              ))}
             </div>
           </div>
         )}

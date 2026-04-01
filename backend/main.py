@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api import applicant, recruiter
 from backend.api import websocket as ws_router
+from backend.config import settings
 from backend.redis_client import redis_client
 
 logging.basicConfig(
@@ -43,10 +44,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow all origins during development
+# CORS — allow frontend origin + localhost for development
+_origins = [
+    settings.frontend_url,
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,6 +61,17 @@ app.add_middleware(
 # REST routers
 app.include_router(recruiter.router, prefix="/api/recruiter", tags=["recruiter"])
 app.include_router(applicant.router, prefix="/api/applicant", tags=["applicant"])
+
+# Results shorthand: /api/results/{session_id} → applicant results endpoint
+from fastapi import APIRouter as _AR
+_results = _AR()
+
+@_results.get("/{session_id}")
+async def results_alias(session_id: str) -> dict:
+    """Shorthand for /api/applicant/results/{session_id}."""
+    return await applicant.get_results(session_id)
+
+app.include_router(_results, prefix="/api/results", tags=["results"])
 
 # WebSocket router (no /api prefix — nginx routes /ws/* directly)
 app.include_router(ws_router.router, prefix="/ws", tags=["websocket"])

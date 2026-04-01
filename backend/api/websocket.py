@@ -3,11 +3,13 @@ WebSocket endpoint for ARIA MVP 2.0 — live interview orchestration.
 
 Protocol
 --------
-Client → Server (text JSON):
-    {"type": "start"}          trigger first ARIA question
-
 Client → Server (binary):
     <raw audio bytes>          applicant's recorded answer (webm/wav)
+
+Client → Server (text JSON):
+    {"type": "ready"}          frontend finished playing ARIA audio
+    {"type": "recording_started"}  applicant started recording
+    {"type": "recording_stopped"}  applicant stopped recording
 
 Server → Client (text JSON):
     {"type": "transcript", "role": "aria",      "text": "...", "question_count": N}
@@ -15,9 +17,13 @@ Server → Client (text JSON):
     {"type": "thinking"}                        ARIA is processing
     {"type": "verdict",    "data": {...}}        interview complete
     {"type": "error",      "message": "..."}
+    {"type": "checkin",    "text": "..."}        idle check-in
+    {"type": "timeout",    "text": "..."}        session timed out
+    {"type": "resume",     ...}                  resuming previous session
+    {"type": "resumed",    "text": "..."}        resume acknowledgment
 
 Server → Client (binary):
-    <WAV audio bytes>          ARIA's spoken response
+    <MP3 audio bytes>          ARIA's spoken response
 """
 
 import asyncio
@@ -111,24 +117,6 @@ async def _aria_speak(ws: WebSocket, text: str, role: str = "aria", question_cou
     await _send_json(ws, payload)
     audio = await synthesize(text)
     await _send_audio(ws, audio)
-
-
-async def _wait_for_start(ws: WebSocket) -> bool:
-    """Block until the client sends {"type": "start"} or disconnects.
-
-    Returns True when start is received, False on disconnect / error.
-    """
-    while True:
-        msg = await ws.receive()
-        if msg.get("type") == "websocket.disconnect":
-            return False
-        text = msg.get("text")
-        if text:
-            try:
-                if json.loads(text).get("type") == "start":
-                    return True
-            except ValueError:
-                pass
 
 
 async def _wait_for_audio(ws: WebSocket) -> bytes:
@@ -243,10 +231,7 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
             await ws.close()
             return
 
-        # ── Wait for client "start" signal ────────────────────────────────
-        started = await _wait_for_start(ws)
-        if not started:
-            return
+        # ── Auto-start: no start signal needed ────────────────────────
 
         # ── Check if resuming an existing interview ───────────────────────
         is_resuming = len(state.conversation_history) > 0 and state.question_count > 0
@@ -279,12 +264,14 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
             if last_turn_role == "aria" and last_aria_text:
                 # ARIA was waiting for a response — repeat the last question
                 resume_msg = f"Welcome back, {candidate_addr}! Let me repeat my last question. "
+                await _send_json(ws, {"type": "resumed", "text": resume_msg})
                 await _aria_speak(ws, resume_msg + last_aria_text, question_count=state.question_count)
                 # Question already sent — skip question_node on first loop iteration
                 skip_question_node = True
             else:
                 # Applicant had answered — generate next question
                 resume_msg = f"Welcome back, {candidate_addr}! Let us continue where we left off."
+                await _send_json(ws, {"type": "resumed", "text": resume_msg})
                 await _aria_speak(ws, resume_msg, question_count=state.question_count)
 
                 await _send_json(ws, {"type": "thinking"})
@@ -409,6 +396,7 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
 
                 # ── Final evaluation ──────────────────────────────────────
                 await _send_json(ws, {"type": "thinking"})
+                state = _apply(state, {"interview_ended_at": time()})
                 updates = await final_evaluation_node(state)
                 state = _apply(state, updates)
                 await redis_client.set_json(f"session:{session_id}", state.model_dump())

@@ -71,7 +71,6 @@ const InterviewPage: React.FC = () => {
   const { videoRef, status: camStatus, isEnabled: isCamOn, toggleCamera, startCamera } = useCamera();
   const { isRecording, isPlaying, audioLevel, startRecording, stopRecording, playAudio, stopAll: stopAllAudio } = useAudio();
   const { turns, addTurn, clear: clearTranscript } = useTranscript();
-  const didStartRef = useRef(false);
   const verdictRef = useRef<Record<string, unknown> | null>(null);
 
   // ── Debug panel toggle (Ctrl+D) ──────────────────────────────────────────
@@ -183,6 +182,10 @@ const InterviewPage: React.FC = () => {
         setPhase("error");
       } else if (type === "debug") {
         setDebugLog((prev) => [...prev.slice(-19), msg]);
+      } else if (type === "resumed") {
+        setStatusMessage(msg.text as string);
+      } else if (type === "retry") {
+        setStatusMessage(msg.text as string || "Please try again.");
       }
     },
     [addTurn, clearTranscript, sessionId]
@@ -213,12 +216,6 @@ const InterviewPage: React.FC = () => {
     url: `${WS_BASE}/ws/interview/${sessionId}`,
     onJsonMessage: handleJsonMessage,
     onBinaryMessage: handleBinaryMessage,
-    onOpen: () => {
-      if (!didStartRef.current) {
-        didStartRef.current = true;
-        sendJson({ type: "start" });
-      }
-    },
     enabled: wsEnabled,
   });
 
@@ -266,7 +263,7 @@ const InterviewPage: React.FC = () => {
     setPhase("done");
   }, [stopAllAudio, closeWs]);
 
-  const maxQ = info?.max_questions ?? 7;
+  const maxQ = info?.max_questions ?? 12;
 
   // ── Render ────────────────────────────────────────────────────────────────
 

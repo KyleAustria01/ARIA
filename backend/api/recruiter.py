@@ -5,6 +5,9 @@ No authentication required — session-based flow.
 Separate endpoints for JD and resume upload so the recruiter sees
 extracted data previews before generating an interview link.
 
+PDFs are processed in-memory (no disk writes) to support
+ephemeral filesystems like Render.
+
 Includes chunked-upload endpoints for large files / slow connections:
   POST /upload/init          – create an upload session
   POST /upload/chunk         – send one chunk
@@ -12,13 +15,12 @@ Includes chunked-upload endpoints for large files / slow connections:
 """
 
 import asyncio
+import base64
 import json
 import logging
-import os
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from backend.interview_graph.analyze_resume_node import get_match_tier
@@ -30,22 +32,6 @@ from backend.utils.pdf_parser import parse_jd, parse_resume
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-_UPLOAD_DIR = "uploads"
-_CHUNK_DIR = os.path.join(_UPLOAD_DIR, "chunks")
-os.makedirs(_UPLOAD_DIR, exist_ok=True)
-os.makedirs(_CHUNK_DIR, exist_ok=True)
-
-
-async def _save_upload(file: UploadFile, prefix: str) -> str:
-    """Save an uploaded file to disk and return its absolute path."""
-    ext = os.path.splitext(file.filename or "")[1] or ".pdf"
-    filename = f"{prefix}_{uuid.uuid4().hex}{ext}"
-    path = os.path.join(_UPLOAD_DIR, filename)
-    content = await file.read()
-    with open(path, "wb") as f:
-        f.write(content)
-    return os.path.abspath(path)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -101,14 +87,7 @@ async def upload_chunk(
 ) -> Dict[str, Any]:
     """Receive a single chunk and, once all chunks arrive, trigger assembly.
 
-    Args:
-        upload_id: The upload session returned by ``/upload/init``.
-        chunk_index: Zero-based index of this chunk.
-        total_chunks: Total expected chunks (used for validation).
-        chunk: The binary chunk payload.
-
-    Returns:
-        Current chunk progress and upload status.
+    Chunks are stored in Redis (not disk) to support ephemeral filesystems.
     """
     raw = await redis_client.get(f"upload:{upload_id}")
     if not raw:
@@ -116,11 +95,9 @@ async def upload_chunk(
 
     upload_meta: Dict[str, Any] = json.loads(raw)
 
-    # Validate chunk index
     if chunk_index < 0 or chunk_index >= upload_meta["total_chunks"]:
         raise HTTPException(status_code=400, detail="Invalid chunk_index")
 
-    # Idempotent: skip if already received
     if chunk_index in upload_meta["received_chunks"]:
         return {
             "received": chunk_index,
@@ -128,15 +105,16 @@ async def upload_chunk(
             "status": upload_meta["status"],
         }
 
-    # Persist chunk to disk
-    chunk_path = os.path.join(_CHUNK_DIR, f"{upload_id}_{chunk_index}")
+    # Store chunk bytes in Redis instead of disk
     chunk_data = await chunk.read()
-    async with aiofiles.open(chunk_path, "wb") as f:
-        await f.write(chunk_data)
+    await redis_client.set(
+        f"chunk:{upload_id}:{chunk_index}",
+        base64.b64encode(chunk_data).decode(),
+        ex=3600,
+    )
 
     upload_meta["received_chunks"].append(chunk_index)
 
-    # All chunks received → kick off background assembly + processing
     if len(upload_meta["received_chunks"]) == upload_meta["total_chunks"]:
         upload_meta["status"] = "assembling"
         await redis_client.set(f"upload:{upload_id}", json.dumps(upload_meta), ex=3600)
@@ -167,7 +145,7 @@ async def get_upload_status(upload_id: str) -> Dict[str, Any]:
 # ── Background: assemble chunks → parse → analyse ───────────────────
 
 async def _assemble_and_process(upload_id: str, upload_meta: Dict[str, Any]) -> None:
-    """Assemble uploaded chunks into a single PDF then parse and analyse it.
+    """Assemble uploaded chunks from Redis into PDF bytes, parse and analyse.
 
     Runs as a fire-and-forget ``asyncio`` task so the chunk endpoint
     returns immediately. Status updates are pushed into Redis so the
@@ -178,30 +156,25 @@ async def _assemble_and_process(upload_id: str, upload_meta: Dict[str, Any]) -> 
         upload_type = upload_meta["upload_type"]
         session_id = upload_meta["session_id"]
 
-        # ── 1. Assemble chunks into one file ─────────────────────────
-        output_path = os.path.join(_UPLOAD_DIR, f"{upload_type}_{upload_id}.pdf")
-        async with aiofiles.open(output_path, "wb") as outfile:
-            for i in range(total_chunks):
-                chunk_path = os.path.join(_CHUNK_DIR, f"{upload_id}_{i}")
-                async with aiofiles.open(chunk_path, "rb") as cf:
-                    await outfile.write(await cf.read())
-                os.unlink(chunk_path)
-
-        output_path = os.path.abspath(output_path)
+        # ── 1. Assemble chunks from Redis into bytes ─────────────────
+        parts: list[bytes] = []
+        for i in range(total_chunks):
+            chunk_b64 = await redis_client.get(f"chunk:{upload_id}:{i}")
+            if chunk_b64:
+                parts.append(base64.b64decode(chunk_b64))
+                await redis_client.client.delete(f"chunk:{upload_id}:{i}")
+        pdf_bytes = b"".join(parts)
 
         # ── 2. Update status → analysing ─────────────────────────────
         upload_meta["status"] = "analyzing"
-        upload_meta["file_path"] = output_path
         await redis_client.set(f"upload:{upload_id}", json.dumps(upload_meta), ex=3600)
 
-        # ── 3. Parse & analyse ────────────────────────────────────────
+        # ── 3. Parse & analyse in-memory ──────────────────────────────
         if upload_type == "jd":
-            result = await parse_jd(output_path)
+            result = await parse_jd(pdf_bytes)
 
-            # Persist a new session with JD data
             state = InterviewState(
                 session_id=session_id,
-                jd_file_path=output_path,
                 jd_raw_text=result.get("raw_text", ""),
                 job_title=result.get("job_title", ""),
                 company=result.get("company", ""),
@@ -236,11 +209,10 @@ async def _assemble_and_process(upload_id: str, upload_meta: Dict[str, Any]) -> 
                 "required_skills": session_data.get("required_skills", []) if session_data else [],
                 "nice_to_have_skills": session_data.get("nice_to_have_skills", []) if session_data else [],
             }
-            resume_result = await parse_resume(output_path, jd_context)
+            resume_result = await parse_resume(pdf_bytes, jd_context)
 
             if session_data:
                 session_data.update(
-                    resume_file_path=output_path,
                     resume_raw_text=resume_result.get("raw_text", ""),
                     candidate_name=resume_result.get("candidate_name", "Candidate"),
                     candidate_email=resume_result.get("email", ""),
@@ -289,16 +261,16 @@ async def _assemble_and_process(upload_id: str, upload_meta: Dict[str, Any]) -> 
 async def upload_jd(
     jd_file: UploadFile = File(..., description="Job description PDF"),
 ) -> Dict[str, Any]:
-    """Upload a JD PDF, parse it, and return extracted fields as a preview.
+    """Upload a JD PDF, parse it in-memory, and return extracted fields.
 
     Creates a new session in Redis with JD data so that the resume
     can be uploaded separately in a second step.
     """
     session_id = uuid.uuid4().hex
-    jd_path = await _save_upload(jd_file, f"jd_{session_id}")
+    jd_bytes = await jd_file.read()
 
     try:
-        jd_data = await parse_jd(jd_path)
+        jd_data = await parse_jd(jd_bytes)
     except Exception as exc:
         logger.exception("JD parsing failed for session %s", session_id)
         raise HTTPException(status_code=500, detail=f"JD parsing failed: {exc}")
@@ -306,7 +278,6 @@ async def upload_jd(
     # Persist partial state to Redis
     state = InterviewState(
         session_id=session_id,
-        jd_file_path=jd_path,
         jd_raw_text=jd_data.get("raw_text", ""),
         job_title=jd_data.get("job_title", ""),
         company=jd_data.get("company", ""),
@@ -346,30 +317,27 @@ async def upload_resume(
 ) -> Dict[str, Any]:
     """Upload a resume PDF against an existing session and return candidate preview.
 
-    Parses the resume, computes match score against the JD already stored
-    in the session, then runs the remaining setup pipeline (research + merge).
+    Parses the resume in-memory, computes match score against the JD already
+    stored in the session.
     """
-    # Load existing session (must have JD already)
     session_data = await redis_client.get_json(f"session:{session_id}")
     if not session_data:
         raise HTTPException(status_code=404, detail="Session not found — upload JD first")
 
-    resume_path = await _save_upload(resume_file, f"resume_{session_id}")
+    resume_bytes = await resume_file.read()
 
-    # Parse resume with JD context for match scoring
     jd_data = {
         "required_skills": session_data.get("required_skills", []),
         "nice_to_have_skills": session_data.get("nice_to_have_skills", []),
     }
     try:
-        resume_data = await parse_resume(resume_path, jd_data)
+        resume_data = await parse_resume(resume_bytes, jd_data)
     except Exception as exc:
         logger.exception("Resume parsing failed for session %s", session_id)
         raise HTTPException(status_code=500, detail=f"Resume parsing failed: {exc}")
 
     # Update session state with resume data
     session_data.update(
-        resume_file_path=resume_path,
         resume_raw_text=resume_data.get("raw_text", ""),
         candidate_name=candidate_name or resume_data.get("candidate_name", "Candidate"),
         candidate_email=resume_data.get("email", ""),
@@ -405,10 +373,10 @@ async def upload_resume(
 
 @router.post("/prepare/{session_id}")
 async def prepare_interview(session_id: str) -> Dict[str, Any]:
-    """Run the setup pipeline (research + merge) and finalize the session.
+    """Start the setup pipeline (research + merge) in the background.
 
-    Call this after both JD and resume have been uploaded.
-    Returns the interview link the recruiter can share with the applicant.
+    Returns immediately with the interview link. The research and merge
+    steps run asynchronously — the WebSocket handler will wait if needed.
     """
     session_data = await redis_client.get_json(f"session:{session_id}")
     if not session_data:
@@ -416,14 +384,8 @@ async def prepare_interview(session_id: str) -> Dict[str, Any]:
 
     state = InterviewState(**session_data)
 
-    try:
-        result_dict: Dict[str, Any] = await setup_graph.ainvoke(state.model_dump())
-        state = InterviewState(**result_dict)
-    except Exception as exc:
-        logger.exception("Setup graph failed for session %s", session_id)
-        raise HTTPException(status_code=500, detail=f"Setup pipeline failed: {exc}")
-
-    await redis_client.set_json(f"session:{session_id}", state.model_dump())
+    # Run research + merge in background
+    asyncio.create_task(_run_setup_pipeline(session_id, state))
 
     return {
         "session_id": session_id,
@@ -433,8 +395,24 @@ async def prepare_interview(session_id: str) -> Dict[str, Any]:
         "match_score": state.match_score,
         "match_tier": get_match_tier(state.match_score),
         "max_questions": state.max_questions,
-        "context_preview": (state.interview_context or "")[:400],
+        "context_preview": state.jd_raw_text[:400] if state.jd_raw_text else "",
     }
+
+
+async def _run_setup_pipeline(session_id: str, state: InterviewState) -> None:
+    """Run setup_graph (research + merge) in the background.
+
+    Updates the session in Redis when done so the WebSocket handler
+    picks up the enriched context.
+    """
+    try:
+        result_dict: Dict[str, Any] = await setup_graph.ainvoke(state.model_dump())
+        updated = InterviewState(**result_dict)
+        await redis_client.set_json(f"session:{session_id}", updated.model_dump())
+        logger.info("Setup pipeline completed for session %s", session_id)
+    except Exception as exc:
+        logger.exception("Setup pipeline failed for session %s: %s", session_id, exc)
+        # Session still usable — interview can proceed with JD-only context
 
 
 # ── Read session ─────────────────────────────────────────────────────
@@ -446,4 +424,36 @@ async def get_session(session_id: str) -> Dict[str, Any]:
     if not data:
         raise HTTPException(status_code=404, detail="Session not found")
     return data
+
+
+@router.get("/sessions")
+async def list_sessions() -> List[Dict[str, Any]]:
+    """Return a list of all interview sessions for the recruiter dashboard.
+
+    Scans Redis for session:* keys and returns summary info for each.
+    """
+    keys = await redis_client.client.keys("session:*")
+    sessions: List[Dict[str, Any]] = []
+    for key in keys:
+        key_str = key.decode() if isinstance(key, bytes) else key
+        session_id = key_str.replace("session:", "")
+        data = await redis_client.get_json(key_str)
+        if not data:
+            continue
+        sessions.append({
+            "session_id": session_id,
+            "candidate_name": data.get("candidate_name", "Unknown"),
+            "job_title": data.get("job_title", ""),
+            "company": data.get("company", ""),
+            "is_complete": data.get("is_complete", False),
+            "question_count": data.get("question_count", 0),
+            "max_questions": data.get("max_questions", 12),
+            "match_score": data.get("match_score", 0),
+            "interview_started_at": data.get("interview_started_at", 0),
+            "interview_ended_at": data.get("interview_ended_at", 0),
+            "overall_score": (data.get("verdict") or {}).get("overall_score"),
+        })
+    # Sort by most recent first
+    sessions.sort(key=lambda s: s.get("interview_started_at", 0), reverse=True)
+    return sessions
 

@@ -21,20 +21,19 @@ logger = logging.getLogger(__name__)
 # Raw text extraction
 # ---------------------------------------------------------------------------
 
-def extract_text_from_pdf(path: str | Path) -> str:
-    """Extract all text from a PDF file using PyMuPDF.
+def extract_text_from_pdf(source: str | Path | bytes) -> str:
+    """Extract all text from a PDF using PyMuPDF.
 
     Args:
-        path: Absolute path to the PDF file.
+        source: File path or raw PDF bytes for in-memory processing.
 
     Returns:
         Concatenated plain text from all pages.
-
-    Raises:
-        FileNotFoundError: If the PDF does not exist.
-        fitz.FileDataError: If the file is not a valid PDF.
     """
-    doc = fitz.open(str(path))
+    if isinstance(source, bytes):
+        doc = fitz.open(stream=source, filetype="pdf")
+    else:
+        doc = fitz.open(str(source))
     pages: list[str] = []
     for page in doc:
         pages.append(page.get_text())
@@ -190,21 +189,21 @@ def _regex_resume_fallback(text: str) -> dict[str, Any]:
     }
 
 
-async def parse_jd(path: str | Path) -> dict[str, Any]:
+async def parse_jd(source: str | Path | bytes) -> dict[str, Any]:
     """Parse a Job Description PDF into structured data.
 
     Extracts raw text via PyMuPDF, then uses the LLM to produce
     a structured dict. Falls back to regex if the LLM fails.
 
     Args:
-        path: Path to the JD PDF file.
+        source: Path to the JD PDF file, or raw PDF bytes.
 
     Returns:
         Dict with keys: job_title, company, location, employment_type,
         experience_required, salary_range, required_skills,
         nice_to_have_skills, responsibilities, qualifications, raw_text.
     """
-    raw_text = extract_text_from_pdf(path)
+    raw_text = extract_text_from_pdf(source)
     prompt = _JD_PROMPT.format(text=raw_text[:8000])  # cap to avoid token limits
 
     try:
@@ -221,7 +220,7 @@ async def parse_jd(path: str | Path) -> dict[str, Any]:
 
 
 async def parse_resume(
-    path: str | Path,
+    source: str | Path | bytes,
     jd_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Parse a Resume PDF into structured data, with optional JD match scoring.
@@ -231,7 +230,7 @@ async def parse_resume(
     against required skills. Falls back to regex if the LLM fails.
 
     Args:
-        path: Path to the resume PDF file.
+        source: Path to the resume PDF file, or raw PDF bytes.
         jd_data: Optional parsed JD dict to compute skill match score.
 
     Returns:
@@ -239,7 +238,7 @@ async def parse_resume(
         total_experience_years, skills, experience, education,
         match_score, matched_skills, missing_skills, raw_text.
     """
-    raw_text = extract_text_from_pdf(path)
+    raw_text = extract_text_from_pdf(source)
     prompt = _RESUME_PROMPT.format(text=raw_text[:8000])
 
     try:

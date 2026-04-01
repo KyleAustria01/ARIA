@@ -75,7 +75,7 @@ class InterviewState(BaseModel):
     # --- Live interview state ---
     conversation_history: list[ConversationTurn] = Field(default_factory=list)
     question_count: int = 0
-    max_questions: int = 7
+    max_questions: int = 12
     scores: list[dict[str, Any]] = Field(default_factory=list)
     is_complete: bool = False
     interview_started_at: float = 0.0
