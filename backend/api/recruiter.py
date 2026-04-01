@@ -162,7 +162,7 @@ async def _assemble_and_process(upload_id: str, upload_meta: Dict[str, Any]) -> 
             chunk_b64 = await redis_client.get(f"chunk:{upload_id}:{i}")
             if chunk_b64:
                 parts.append(base64.b64decode(chunk_b64))
-                await redis_client.client.delete(f"chunk:{upload_id}:{i}")
+                await redis_client.delete(f"chunk:{upload_id}:{i}")
         pdf_bytes = b"".join(parts)
 
         # ── 2. Update status → analysing ─────────────────────────────
@@ -432,12 +432,11 @@ async def list_sessions() -> List[Dict[str, Any]]:
 
     Scans Redis for session:* keys and returns summary info for each.
     """
-    keys = await redis_client.client.keys("session:*")
+    keys = await redis_client.keys("session:*")
     sessions: List[Dict[str, Any]] = []
     for key in keys:
-        key_str = key.decode() if isinstance(key, bytes) else key
-        session_id = key_str.replace("session:", "")
-        data = await redis_client.get_json(key_str)
+        session_id = key.replace("session:", "")
+        data = await redis_client.get_json(key)
         if not data:
             continue
         sessions.append({

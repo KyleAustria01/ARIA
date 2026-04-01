@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Verify Redis connectivity on startup; log shutdown."""
     logger.info("ARIA backend starting up…")
     try:
-        await redis_client.client.ping()
+        await redis_client.ping()
         logger.info("Redis connection OK.")
     except Exception as exc:
         logger.warning("Redis ping failed: %s — continuing anyway.", exc)

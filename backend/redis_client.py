@@ -117,6 +117,22 @@ class RedisClient:
         """
         await self._redis.expire(key, ex or SESSION_TTL)
 
+    async def keys(self, pattern: str) -> list[str]:
+        """Return all keys matching a pattern.
+
+        Args:
+            pattern: Redis glob-style pattern, e.g. 'session:*'.
+
+        Returns:
+            List of matching key strings.
+        """
+        raw_keys = await self._redis.keys(pattern)
+        return [k.decode() if isinstance(k, bytes) else k for k in raw_keys]
+
+    async def ping(self) -> bool:
+        """Ping the Redis server."""
+        return await self._redis.ping()
+
 
 redis_client = RedisClient(settings.redis_url)
 
