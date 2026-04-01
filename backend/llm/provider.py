@@ -29,13 +29,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 CEREBRAS_MODEL = "llama-3.3-70b"
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 GEMINI_MODEL = "gemini-2.0-flash"
 OLLAMA_MODEL = "llama3.2"
 
-TIMEOUT = httpx.Timeout(60.0, connect=10.0)
-MAX_TOKENS = 500
-TEMPERATURE = 0.1
+TIMEOUT = httpx.Timeout(90.0, connect=15.0)
+MAX_TOKENS = 1024
+TEMPERATURE = 0.4
 
 
 class LLMProviderError(Exception):

@@ -54,7 +54,7 @@ The opening must:
 1. Introduce yourself as ARIA briefly
 2. Mention the role: {state.job_title or 'the position'}
 3. Set a relaxed, conversational tone
-4. End with an open question about their recent work or background
+4. End by asking them to walk you through their resume or background
 
 Keep it to 3-4 sentences maximum.
 Sound like a real person starting a conversation, not reading a script.
@@ -65,11 +65,12 @@ DO NOT say:
 - "I see you have a strong background"
 - "We are excited to have you"
 - "Welcome to this interview"
+- "What have you been working on most recently"
 
 DO say something like:
 "Hi {first_name}, I am ARIA and I will be conducting your pre-screening today
 for the {state.job_title or 'open'} position. Let us keep this conversational —
-can you start by telling me what you have been working on most recently?"
+could you walk me through your resume and tell me a bit about yourself?"
 
 Output ONLY the spoken text."""
 
@@ -87,15 +88,18 @@ Output ONLY the spoken text."""
     )
 
     try:
-        intro_text = await llm_invoke([{"role": "user", "content": prompt}])
+        intro_text = await llm_invoke([
+            {"role": "system", "content": ARIA_PERSONALITY},
+            {"role": "user", "content": prompt},
+        ])
     except Exception as exc:
         logger.warning("LLM intro generation failed (%s), using fallback", exc)
         intro_text = (
             f"Hi {address.split()[0] if address else 'there'}, I am ARIA and I will be handling "
             f"your pre-screening today for the {state.job_title or 'open'} position"
             f"{' at ' + state.company if state.company else ''}. "
-            "Let us keep this conversational — can you start by telling me "
-            "what you have been working on most recently?"
+            "Let us keep this conversational — could you walk me through "
+            "your resume and tell me a bit about yourself?"
         )
 
     greeting_turn = ConversationTurn(

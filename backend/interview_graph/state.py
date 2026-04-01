@@ -111,6 +111,9 @@ class InterviewState(BaseModel):
     last_aria_opener: str = ""                 # Last acknowledgment used (avoid repetition)
     covered_skills: list[str] = Field(default_factory=list)  # Skills already asked about
 
+    # --- Language detection (from evaluate_answer_node) ---
+    detected_language: str = "en"  # ISO 639-1 code: en, tl, pam, ceb, tl-en, etc.
+
     # --- File paths (temp storage during upload) ---
     jd_file_path: str = ""
     resume_file_path: str = ""

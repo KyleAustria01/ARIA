@@ -153,6 +153,26 @@ NEVER SAY:
 - Two questions in one message
 - Anything that sounds scripted or robotic
 - Anything that sounds like you are reading their resume back to them
+
+MULTILINGUAL SUPPORT:
+Candidates may respond in languages other than English — including Tagalog,
+Kapampangan, Bisaya, or mixed code-switching (Taglish). This is NORMAL.
+
+Rules:
+1. ALWAYS understand and evaluate the CONTENT regardless of language used.
+2. ALWAYS respond in ENGLISH — you are the interviewer, keep your language
+   consistent so TTS works properly.
+3. NEVER penalise a candidate for answering in their native language.
+4. NEVER ask them to switch to English — if they are more comfortable in
+   their language, let them speak naturally.
+5. If code-switching (mixing English and native language), treat it as normal
+   conversation. Many Filipino professionals naturally mix English and Tagalog.
+6. Acknowledge what they said based on the MEANING, not the language.
+   Example: If they say "Nag-work po ako sa isang company na gumagamit ng
+   Laravel", you understand they worked at a company using Laravel and
+   respond naturally: "Laravel — nice. What kind of projects did you build?"
+7. NEVER say "I noticed you're speaking in Tagalog" or comment on their
+   language choice.
 """
 
 
@@ -180,38 +200,16 @@ IMPORTANT:
 - Never penalise for nervousness, stammering, or filler words
 - Give the benefit of the doubt for unclear audio transcription
 - Score what the candidate MEANT, not how fluently they said it
+- NEVER penalise for answering in a non-English language (Tagalog,
+  Kapampangan, Bisaya, Taglish, etc.) — evaluate the CONTENT only
+- If the answer is in a different language, translate it mentally
+  and score the technical/professional content as if it were in English
+- Code-switching (mixing English and native language) is natural for
+  multilingual professionals — do NOT flag it as incoherent
 """
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# WRAP-UP DETECTION SIGNALS
-# ─────────────────────────────────────────────────────────────────────────────
 
-WRAP_UP_SIGNALS = [
-    "wrap this up",
-    "end the interview",
-    "i am done",
-    "i'm done",
-    "that is all",
-    "that's all",
-    "finish",
-    "when does this end",
-    "how long is this",
-    "are we almost done",
-    "can we stop",
-    "stop the interview",
-    "no more questions",
-    "i think we're done",
-    "i think we are done",
-    "let's wrap up",
-    "let us wrap up",
-]
-
-
-def detect_wrap_up_request(transcript: str) -> bool:
-    """Check if the candidate is signalling they want to end the interview."""
-    transcript_lower = transcript.lower()
-    return any(signal in transcript_lower for signal in WRAP_UP_SIGNALS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,87 +251,29 @@ SCENARIO 6 — Repeated nervousness (2+ consecutive nervous answers):
 technical chat between colleagues. Let me ask something more casual: \
 [easier conversational question]"
 
+SCENARIO 7 — Candidate speaks in a non-English language:
+If the candidate answers in Tagalog, Kapampangan, Bisaya, or any other
+language (or mixes languages — Taglish):
+- Understand the CONTENT of what they said
+- Respond naturally in ENGLISH without commenting on the language
+- Do NOT ask them to repeat in English
+- Do NOT say "I noticed you are speaking in..."
+- Evaluate and follow up based on the MEANING of their answer
+Example: Candidate says "Gumawa po ako ng sistema gamit ang React at Node"
+→ You respond: "A system built with React and Node — what was the main
+   purpose of that project?"
+
 NEVER:
 - Never say "I can see you are nervous"
 - Never repeat "I can see" as an opener
 - Never make the candidate feel judged
 - Never ask the same question twice
 - Never move on without acknowledging the candidate's attempt
+- Never comment on or question the candidate's language choice
 """
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ANSWER QUALITY ANALYSIS — Light heuristic run before LLM scoring
-# ─────────────────────────────────────────────────────────────────────────────
 
-_FILLER_WORDS = ["um", "uh", "er", "ah", "umm", "uhh"]
-
-_CONFUSED_PHRASES = [
-    "i don't know", "not sure", "no idea",
-    "i dont know", "idk", "pass", "skip",
-]
-
-_CONTENT_KEYWORDS = [
-    "php", "laravel", "code", "project", "develop", "system",
-    "database", "api", "work", "build", "implement", "use",
-    "create", "manage", "handle", "deploy", "test", "design",
-    "framework", "function", "class", "method", "service",
-]
-
-
-def analyze_answer_quality(transcript: str) -> dict:
-    """Classify a candidate answer to determine what comfort level ARIA needs.
-
-    Runs entirely in-process — no LLM call needed.  The result is stored
-    in ``InterviewState.last_answer_quality`` and passed to ``question_node``
-    so ARIA can adapt its tone accordingly.
-
-    Args:
-        transcript: Raw transcribed answer from the candidate.
-
-    Returns:
-        Dict with word_count, nervousness flags, and ``comfort_needed``
-        ('none' | 'probe' | 'medium' | 'high' | 'redirect').
-    """
-    words = transcript.strip().split()
-    word_count = len(words)
-    text_lower = transcript.lower().strip()
-
-    is_empty = word_count < 3
-    is_one_word = word_count < 5
-    is_confused = any(p in text_lower for p in _CONFUSED_PHRASES)
-
-    filler_count = sum(
-        text_lower.count(f" {f} ") + (1 if text_lower.startswith(f"{f} ") else 0)
-        for f in _FILLER_WORDS
-    )
-    is_nervous = filler_count >= 3 or (word_count < 20 and filler_count >= 2)
-
-    is_off_topic = (
-        word_count > 10
-        and not any(kw in text_lower for kw in _CONTENT_KEYWORDS)
-    )
-
-    if is_empty or is_one_word or is_confused:
-        comfort_needed = "high"
-    elif is_nervous:
-        comfort_needed = "medium"
-    elif is_off_topic:
-        comfort_needed = "redirect"
-    elif word_count < 20:
-        comfort_needed = "probe"
-    else:
-        comfort_needed = "none"
-
-    return {
-        "word_count": word_count,
-        "is_nervous": is_nervous,
-        "is_empty": is_empty,
-        "is_confused": is_confused,
-        "is_off_topic": is_off_topic,
-        "filler_count": filler_count,
-        "comfort_needed": comfort_needed,
-    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,6 +287,9 @@ def get_covered_skills(
     """
     Analyse conversation history to find which JD skills have been covered.
 
+    Checks both ARIA's questions AND candidate's answers for skill mentions,
+    providing more accurate skill tracking.
+
     Returns:
         (covered_skills, uncovered_skills)
     """
@@ -356,20 +299,14 @@ def get_covered_skills(
     skill_lower_map = {s.lower(): s for s in required_skills}
 
     for turn in conversation_history:
-        # Only look at ARIA's questions
-        if turn.role != "aria":
-            continue
-
         content_lower = turn.content.lower()
         for skill_lower, skill_original in skill_lower_map.items():
-            # Check if skill (or key part of it) appears in the question
+            # Check if skill (or key part of it) appears in content
             skill_words = skill_lower.split()
             if len(skill_words) == 1:
-                # Single word skill — exact match in content
                 if skill_lower in content_lower:
                     covered.add(skill_original)
             else:
-                # Multi-word skill — check if most words appear
                 matches = sum(1 for w in skill_words if w in content_lower)
                 if matches >= len(skill_words) * 0.6:
                     covered.add(skill_original)

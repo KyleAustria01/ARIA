@@ -64,10 +64,25 @@ export function useAudio(): UseAudioReturn {
         levelCtxRef.current = null;
         setAudioLevel(0);
 
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        const buffer = await blob.arrayBuffer();
-        onStopRef.current?.(buffer);
-        // Stop all mic tracks to release the microphone
+        try {
+          const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+          const buffer = await blob.arrayBuffer();
+          onStopRef.current?.(buffer);
+        } catch (err) {
+          console.error("[useAudio] onstop error:", err);
+        } finally {
+          // Always release mic and reset state
+          stream.getTracks().forEach((t) => t.stop());
+          setIsRecording(false);
+        }
+      };
+
+      recorder.onerror = () => {
+        cancelAnimationFrame(levelRafRef.current);
+        try { levelCtxRef.current?.close(); } catch { /* */ }
+        analyserRef.current = null;
+        levelCtxRef.current = null;
+        setAudioLevel(0);
         stream.getTracks().forEach((t) => t.stop());
         setIsRecording(false);
       };
@@ -113,27 +128,28 @@ export function useAudio(): UseAudioReturn {
 
     return new Promise<void>((resolve) => {
       setIsPlaying(true);
-      audio.onended = () => {
+      let resolved = false;
+
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(safetyTimer);
         setIsPlaying(false);
         audioElRef.current = null;
         URL.revokeObjectURL(url);
         blobUrlRef.current = null;
         resolve();
       };
-      audio.onerror = () => {
-        setIsPlaying(false);
-        audioElRef.current = null;
-        URL.revokeObjectURL(url);
-        blobUrlRef.current = null;
-        resolve();
-      };
-      audio.play().catch(() => {
-        setIsPlaying(false);
-        audioElRef.current = null;
-        URL.revokeObjectURL(url);
-        blobUrlRef.current = null;
-        resolve();
-      });
+
+      // Safety: force-resolve if audio doesn't end within 30 s
+      const safetyTimer = setTimeout(() => {
+        console.warn("[useAudio] playAudio safety timeout — forcing resolve");
+        done();
+      }, 30_000);
+
+      audio.onended = done;
+      audio.onerror = done;
+      audio.play().catch(done);
     });
   }, []);
 

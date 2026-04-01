@@ -1,19 +1,13 @@
 """
-graph_builder — Builds the ARIA MVP 2.0 LangGraph interview pipeline.
+graph_builder — Builds the ARIA MVP 2.0 LangGraph setup pipeline.
 
-Two separate graphs are built:
+The setup_graph is run once by the recruiter after upload:
+  analyze_jd → analyze_resume → research → merge_context
+  Returns a fully populated InterviewState ready for the interview.
 
-1. setup_graph — Run once by the recruiter after upload:
-   analyze_jd → analyze_resume → research → merge_context
-   Returns a fully populated InterviewState ready for the interview.
-
-2. interview_graph — Run per-turn during the live interview:
-   question → (applicant answers via WebSocket) → evaluate_answer
-   → router → [continue: question | finalize: final_evaluation]
-
-The interview_graph uses a conditional edge on router_node:
-  is_complete=False → question_node (loop)
-  is_complete=True  → final_evaluation_node (end)
+The live interview is driven by the WebSocket handler which calls
+individual nodes (question, evaluate_answer, router, final_evaluation)
+directly per turn, providing maximum flexibility for conversational flow.
 """
 
 import logging
@@ -25,10 +19,6 @@ from backend.interview_graph.analyze_jd_node import analyze_jd_node
 from backend.interview_graph.analyze_resume_node import analyze_resume_node
 from backend.interview_graph.research_node import research_node
 from backend.interview_graph.merge_context_node import merge_context_node
-from backend.interview_graph.question_node import question_node
-from backend.interview_graph.evaluate_answer_node import evaluate_answer_node
-from backend.interview_graph.router_node import router_node
-from backend.interview_graph.final_evaluation_node import final_evaluation_node
 
 logger = logging.getLogger(__name__)
 
@@ -62,58 +52,6 @@ def build_setup_graph() -> StateGraph:
     return graph.compile()
 
 
-def _route(state: InterviewState) -> str:
-    """Conditional edge function for router_node.
-
-    Args:
-        state: Current InterviewState after router_node updates is_complete.
-
-    Returns:
-        "finalize" if interview should end, "continue" to loop back.
-    """
-    return "finalize" if state.is_complete else "continue"
-
-
-def build_interview_graph() -> StateGraph:
-    """Build the per-turn interview graph (question → evaluate → route).
-
-    Flow:
-        question → evaluate_answer → router
-            ├── continue → question  (loop)
-            └── finalize → final_evaluation → END
-
-    This graph is invoked once per applicant answer turn via the WebSocket.
-
-    Returns:
-        Compiled LangGraph StateGraph for the live interview phase.
-    """
-    graph = StateGraph(InterviewState)
-
-    graph.add_node("question", question_node)
-    graph.add_node("evaluate_answer", evaluate_answer_node)
-    graph.add_node("router", router_node)
-    graph.add_node("final_evaluation", final_evaluation_node)
-
-    graph.set_entry_point("question")
-    graph.add_edge("question", "evaluate_answer")
-    graph.add_edge("evaluate_answer", "router")
-
-    graph.add_conditional_edges(
-        "router",
-        _route,
-        {
-            "continue": "question",
-            "finalize": "final_evaluation",
-        },
-    )
-
-    graph.add_edge("final_evaluation", END)
-
-    logger.info("Interview graph compiled")
-    return graph.compile()
-
-
-# Module-level compiled graph instances (imported by websocket handler)
+# Module-level compiled graph instance (imported by recruiter API)
 setup_graph = build_setup_graph()
-interview_graph = build_interview_graph()
 

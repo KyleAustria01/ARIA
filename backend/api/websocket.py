@@ -310,6 +310,11 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
                     )
                     await _send_json(ws, {"type": "transcript", "role": "applicant", "text": ready_text})
 
+            # ── Evaluate intro answer (detect incomplete / accidental) ──
+            updates = await evaluate_answer_node(state)
+            state = _apply(state, updates)
+            await _send_debug(ws, state, "evaluate_answer_node")
+
             # ── First question ────────────────────────────────────────────
             await _send_json(ws, {"type": "thinking"})
             updates = await question_node(state)

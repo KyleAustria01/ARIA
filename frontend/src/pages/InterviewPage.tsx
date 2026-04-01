@@ -72,6 +72,7 @@ const InterviewPage: React.FC = () => {
   const { isRecording, isPlaying, audioLevel, startRecording, stopRecording, playAudio, stopAll: stopAllAudio } = useAudio();
   const { turns, addTurn, clear: clearTranscript } = useTranscript();
   const verdictRef = useRef<Record<string, unknown> | null>(null);
+  const sendJsonRef = useRef<(payload: object) => void>(() => {});
 
   // ── Debug panel toggle (Ctrl+D) ──────────────────────────────────────────
   useEffect(() => {
@@ -207,6 +208,8 @@ const InterviewPage: React.FC = () => {
         console.error("[ARIA audio] playback error:", err);
       } finally {
         setIsSpeaking(false);
+        // Tell backend audio playback finished — resets idle timer
+        sendJsonRef.current({ type: "ready" });
       }
     },
     [playAudio]
@@ -218,6 +221,9 @@ const InterviewPage: React.FC = () => {
     onBinaryMessage: handleBinaryMessage,
     enabled: wsEnabled,
   });
+
+  // Keep ref in sync so handleBinaryMessage can send "ready" signal
+  sendJsonRef.current = sendJson;
 
   // ── 3. Join ──────────────────────────────────────────────────────────────
   const handleJoin = async () => {
@@ -234,27 +240,34 @@ const InterviewPage: React.FC = () => {
   // ── 4. Recording controls ────────────────────────────────────────────────
   const [micOn, setMicOn] = useState(true);
 
+  // ── Safety watchdog: force-reset stuck speaking/thinking state after 30 s ──
   useEffect(() => {
-    if ((isSpeaking || isThinking) && isRecording) {
-      stopRecording();
-    }
-  }, [isSpeaking, isThinking, isRecording, stopRecording]);
+    if (!isSpeaking && !isThinking) return;
+    const timer = setTimeout(() => {
+      console.warn("[ARIA] Speaking/thinking state stuck — force resetting");
+      setIsSpeaking(false);
+      setIsThinking(false);
+    }, 30_000);
+    return () => clearTimeout(timer);
+  }, [isSpeaking, isThinking]);
 
   const ariaOccupied = isSpeaking || isThinking || isPlaying;
 
   const handleToggleMic = useCallback(() => {
     if (isRecording) {
+      sendJson({ type: "recording_stopped" });
       stopRecording();
       setMicOn(true);
       return;
     }
     if (ariaOccupied) return;
     if (micOn && wsStatus === "open") {
+      sendJson({ type: "recording_started" });
       startRecording((buffer) => sendBinary(buffer));
     } else {
       setMicOn((v) => !v);
     }
-  }, [isRecording, micOn, ariaOccupied, wsStatus, stopRecording, startRecording, sendBinary]);
+  }, [isRecording, micOn, ariaOccupied, wsStatus, stopRecording, startRecording, sendBinary, sendJson]);
 
   const handleHangUp = useCallback(() => {
     stopAllAudio();
