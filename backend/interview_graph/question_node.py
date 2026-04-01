@@ -12,10 +12,12 @@ Pure async function: takes state, returns updated state dict.
 
 import json
 import logging
+import random
 import time
 
 from backend.interview_graph.prompts import (
     ARIA_PERSONALITY,
+    COMFORT_SCENARIOS,
     get_acknowledgment,
     get_transition,
     get_covered_skills,
@@ -28,27 +30,42 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = f"""\
 {ARIA_PERSONALITY}
 
-CRITICAL RESPONSE RULES:
-1. NEVER start with "I can see", "I understand", "That is great", or similar filler
-2. Use VARIED acknowledgments: "Thank you.", "Noted.", "That is helpful.", or say nothing
-3. Reference something SPECIFIC from their answer, not generic praise
-4. Ask about skills from the UNCOVERED list below — do NOT repeat covered topics
-5. ONE clear question only — never multiple questions
-6. Keep total response under 3 sentences
+{COMFORT_SCENARIOS}
 
-RESPONSE FORMAT:
-1. [Optional] One SHORT acknowledgment that references what they just said
-2. [If transitioning] Brief bridge to the new topic
-3. ONE specific technical question targeting an UNCOVERED skill
+RESPONSE RULES:
+1. ALWAYS reference something SPECIFIC from their last answer — never generic praise
+2. Ask about skills from the UNCOVERED list — do NOT repeat covered topics
+3. ONE clear question only — never multiple questions
+4. Keep total response under 3 sentences
+5. If the answer seemed incomplete, ask them to continue instead of a new question
+6. Build on what was said — your response must connect to the candidate's words
 
-FORBIDDEN PHRASES (never use these):
-- "I can see you've..."
-- "I understand that..."
-- "That's really great..."
-- "That's very helpful..."
-- "It sounds like you have..."
-- "Based on what you said..."
+CRITICAL — ALWAYS RESPOND TO WHAT WAS JUST SAID:
+Your response MUST connect to the candidate's last message.
+- If they mentioned working on something, ask about that thing.
+- If they started describing a project, ask a follow-up on that project.
+- NEVER jump to a completely different topic without transitioning naturally.
+- The uncovered skills list is a GUIDE, not a script.
+- Real conversations follow what was said, not a predetermined checklist.
+
+NEVER RECITE THE RESUME:
+- Do NOT say "I noticed you have experience with X"
+- Do NOT say "I can see from your resume that..."
+- Do NOT say "Your background shows..."
+- Do NOT describe the candidate's skills back to them
+- Use resume knowledge to ask BETTER questions, not to quote it back
+- WRONG: "I noticed you have React and Angular experience, tell me about..."
+- RIGHT: "Walk me through your most recent frontend project — what framework did you use and why?"
 """
+
+# Deterministic continuation prompts for clearly cut-off answers
+_CUT_OFF_CONTINUATIONS = [
+    "Please go on.",
+    "Continue — what were you saying?",
+    "Go ahead, I am listening.",
+    "Please finish your thought.",
+    "I did not catch the rest — please continue.",
+]
 
 _FIRST_QUESTION_PROMPT = f"""\
 {ARIA_PERSONALITY}
@@ -109,7 +126,57 @@ async def question_node(state: InterviewState) -> dict:
     ack = get_acknowledgment(state.last_aria_opener)
     transition = get_transition()
 
-    if is_first:
+    # Get the last candidate answer for incomplete-answer handling
+    last_answer = ""
+    for turn in reversed(state.conversation_history):
+        if turn.role == "applicant":
+            last_answer = turn.content
+            break
+
+    if not is_first and state.last_answer_incomplete:
+        # Answer was clearly cut off mid-sentence — use a deterministic
+        # continuation prompt instead of calling the LLM (which might
+        # ignore the incomplete flag and generate a new question anyway).
+        continuation = random.choice(_CUT_OFF_CONTINUATIONS)
+        logger.info("question_node: answer incomplete, sending continuation: %s", continuation)
+
+        new_turn = ConversationTurn(
+            role="aria",
+            content=continuation,
+            timestamp=time.time(),
+        )
+        return {
+            "conversation_history": state.conversation_history + [new_turn],
+            "question_count": state.question_count,  # NOT a new question
+            "covered_skills": covered_skills,
+            "last_aria_opener": "",
+        }
+
+    if not is_first and state.clarification_requested:
+        # Candidate asked for the question to be rephrased or given as a scenario
+        last_q = state.last_question_asked or ""
+        for turn in reversed(state.conversation_history):
+            if turn.role == "aria" and not last_q:
+                last_q = turn.content
+                break
+
+        user_prompt = f"""The candidate asked for the question to be rephrased or given as a scenario.
+
+Original question: "{last_q}"
+
+RULES:
+- Keep the EXACT SAME technical topic — do NOT change to a different subject
+- Give a real-world scenario first to set context
+- Make it more conversational and concrete
+- ONE question only
+
+Format:
+"Sure, let me put that differently. [2 sentence real scenario]. With that in mind, [rephrased question]?"
+
+The topic MUST stay: {last_q[:150]}
+Output ONLY the spoken text."""
+
+    elif is_first:
         user_prompt = f"""{_FIRST_QUESTION_PROMPT}
 
 === ROLE ===
@@ -173,49 +240,68 @@ related question on the SAME topic — something more beginner-level or
 experience-based rather than theoretical. This does NOT count as a new question.
 """
 
-        elif state.consecutive_nervous_count == 1:
-            ei_context = """
-=== CANDIDATE SHOWED SOME HESITATION ===
-The candidate seems slightly nervous.
-Begin your next question with a brief warm acknowledgment like:
-"That is perfectly fine, take your time." or "No worries at all, let us continue."
-Then ask the next question normally.
-Be patient and encouraging without drawing attention to their nervousness.
+        else:
+            # Use last_answer_quality for nuanced comfort routing
+            comfort_needed = (state.last_answer_quality or {}).get("comfort_needed", "none")
+            word_count = (state.last_answer_quality or {}).get("word_count", 999)
+
+            if comfort_needed == "high":
+                ei_context = f"""
+=== CANDIDATE NEEDS HIGH COMFORT — APPLY SCENARIO 3 ===
+The candidate's answer was very short ({word_count} words) or showed confusion.
+Apply COMFORT SCENARIO 3:
+- Respond warmly: "That is perfectly fine."
+- Ask a different, SIMPLER formulation of the same topic.
+- Do NOT repeat the same question word-for-word.
+- Do NOT move to a new skill yet — help them succeed on this one first.
 """
 
-        elif state.consecutive_nervous_count == 2:
-            ei_context = """
-=== CANDIDATE IS NERVOUS ===
-The candidate is showing signs of nervousness for two consecutive answers
-(stammering, very short replies, hesitation).
-
-Before asking the next question:
-1. Offer explicit reassurance
-2. Remind them this is just a conversation
-3. Ask a slightly easier question
-Example opener:
-"I can tell you might be a little nervous and that is completely normal.
-Let us slow down a bit. Here is a more straightforward question..."
-
-Keep your tone extra warm and patient.
-Do NOT draw attention to specific nervous behaviors like stammering.
+            elif comfort_needed == "medium" or state.consecutive_nervous_count == 1:
+                ei_context = """
+=== CANDIDATE SHOWED SOME HESITATION — APPLY SCENARIO 2 ===
+The candidate seems slightly nervous (filler words, short answer).
+Apply COMFORT SCENARIO 2:
+- Begin with: "Take your time, there is no rush here."
+- Ask a simplified version of the next question.
+- Keep your tone extra warm.
 """
 
-        elif state.consecutive_nervous_count >= 3:
-            ei_context = """
+            elif comfort_needed == "redirect":
+                ei_context = f"""
+=== CANDIDATE WENT OFF-TOPIC — APPLY SCENARIO 4 ===
+The candidate's answer did not address the question.
+Apply COMFORT SCENARIO 4:
+- Gently redirect: "Interesting. Let me refocus us a bit."
+- Ask a more focused version targeting the same skill.
+"""
+
+            elif comfort_needed == "probe":
+                ei_context = f"""
+=== CANDIDATE GAVE SHALLOW ANSWER — APPLY SCENARIO 1 ===
+The candidate's answer was brief ({word_count} words) but not a non-answer.
+Apply COMFORT SCENARIO 1:
+- Acknowledge: "Thank you for sharing that."
+- Probe: "Could you walk me through a specific example from your experience?"
+"""
+
+            elif state.consecutive_nervous_count == 2:
+                ei_context = """
+=== CANDIDATE IS NERVOUS — APPLY SCENARIO 6 ===
+The candidate has shown nervousness for two consecutive answers.
+Apply COMFORT SCENARIO 6:
+- Normalise: "Think of this as just a technical chat between colleagues."
+- Ask a casual, conversational question about their actual work experience.
+"""
+
+            elif state.consecutive_nervous_count >= 3:
+                ei_context = """
 === CANDIDATE IS CLEARLY STRUGGLING ===
-The candidate has been nervous or struggling for three or more consecutive answers.
-Take a completely different approach:
-1. Acknowledge their situation warmly
-2. Tell them their effort is appreciated
-3. Ask a very simple open-ended question
-4. Give them space to speak freely
-Example:
-"I appreciate your effort here. Let us try something different.
-Can you just tell me about a project you worked on recently that you are
-proud of? Take as much time as you need."
-
-Make the question EASY and OPEN-ENDED. No trick questions, no deep technical dives.
+Three or more consecutive nervous/short answers.
+- Acknowledge warmly and appreciate their effort.
+- Ask a very simple open-ended question about a project they worked on.
+- No trick questions, no deep dives.
+Example: "I appreciate your effort here. Can you tell me about a project
+you worked on recently that you are proud of? Take as much time as you need."
 """
 
         hint_instruction = {
@@ -335,9 +421,13 @@ Generate your next conversational turn (acknowledgement + question)."""
                 f"{uncovered[0] if uncovered else 'the core skills for this role'}?"
             )
 
-    # Follow-ups, elaborations, simplifications, and wrap-up don't count as new questions
+    # Follow-ups, elaborations, simplifications, incomplete continuations, clarifications, and wrap-up don't count
     is_follow_up = False
-    if not is_first and state.scores:
+    if not is_first and state.last_answer_incomplete:
+        is_follow_up = True
+    elif not is_first and state.clarification_requested:
+        is_follow_up = True
+    elif not is_first and state.scores:
         latest_hint = state.scores[-1].get("follow_up_hint", "move_on")
         is_follow_up = latest_hint in ("dig_deeper", "clarify", "elaborate", "simplify", "wrap_up")
 

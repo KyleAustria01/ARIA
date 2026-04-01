@@ -4,8 +4,9 @@ LLM provider with automatic fallback chain.
 Fallback order:
 1. Cerebras (llama-3.3-70b) — fastest free (~0.3s)
 2. Groq (llama-3.1-8b-instant) — fast free (~0.5s)
-3. Gemini 2.0 Flash — free tier (~1-2s)
-4. Ollama LLaMA 3.2 — local, offline (slow)
+3. AWS Bedrock (Amazon Nova Lite) — paid but highly reliable
+4. Gemini 2.0 Flash — free tier (~1-2s)
+5. Ollama LLaMA 3.2 — local, offline (slow)
 
 Each provider is tried in order. On failure or rate limit,
 the next provider is attempted. If all fail, raises an exception.
@@ -17,6 +18,13 @@ from typing import Any
 import httpx
 
 from backend.config import settings
+
+# AWS Bedrock is an optional dependency — only imported if boto3 is installed
+try:
+    import boto3  # type: ignore
+    _BOTO3_AVAILABLE = True
+except ImportError:
+    _BOTO3_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +102,71 @@ async def _call_groq(messages: list[dict[str, str]]) -> str:
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]
+
+
+async def _call_bedrock(messages: list[dict[str, str]]) -> str:
+    """Call AWS Bedrock (Amazon Nova Lite) using the Converse API.
+
+    Credentials are read exclusively from ``settings`` (injected from .env).
+    Never hardcoded.
+
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys.
+
+    Returns:
+        The assistant's response text.
+
+    Raises:
+        Exception: On AWS errors or missing credentials.
+    """
+    if not _BOTO3_AVAILABLE:
+        raise RuntimeError("boto3 is not installed — run: pip install boto3")
+
+    if not (settings.aws_access_key_id and settings.aws_secret_access_key):
+        raise RuntimeError("AWS credentials not configured")
+
+    # Build Bedrock Converse API payload
+    # System messages are separated from the conversation turns
+    system_parts: list[dict] = []
+    converse_messages: list[dict] = []
+
+    for msg in messages:
+        if msg["role"] == "system":
+            system_parts.append({"text": msg["content"]})
+        else:
+            bedrock_role = "user" if msg["role"] == "user" else "assistant"
+            converse_messages.append({
+                "role": bedrock_role,
+                "content": [{"text": msg["content"]}],
+            })
+
+    # boto3 calls are synchronous — run in a thread to avoid blocking the event loop
+    import asyncio
+    import functools
+
+    def _sync_call() -> str:
+        client = boto3.client(
+            service_name="bedrock-runtime",
+            region_name=settings.aws_region,
+            aws_access_key_id=settings.aws_access_key_id,
+            aws_secret_access_key=settings.aws_secret_access_key,
+        )
+        kwargs: dict = {
+            "modelId": settings.aws_bedrock_model_id,
+            "messages": converse_messages,
+            "inferenceConfig": {
+                "maxTokens": MAX_TOKENS,
+                "temperature": TEMPERATURE,
+            },
+        }
+        if system_parts:
+            kwargs["system"] = system_parts
+
+        response = client.converse(**kwargs)
+        return response["output"]["message"]["content"][0]["text"]
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, functools.partial(_sync_call))
 
 
 async def _call_gemini(messages: list[dict[str, str]]) -> str:
@@ -184,6 +257,7 @@ async def llm_invoke(messages: list[dict[str, str]]) -> str:
     providers: list[tuple[str, bool, Any]] = [
         ("cerebras", bool(settings.cerebras_api_key), _call_cerebras),
         ("groq", bool(settings.groq_api_key), _call_groq),
+        ("bedrock", bool(settings.aws_access_key_id and settings.aws_secret_access_key), _call_bedrock),
         ("gemini", bool(settings.gemini_api_key), _call_gemini),
         ("ollama", True, _call_ollama),
     ]

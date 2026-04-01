@@ -132,55 +132,83 @@ async def _wait_for_start(ws: WebSocket) -> bool:
 
 
 async def _wait_for_audio(ws: WebSocket) -> bytes:
-    """Block until the client sends a binary audio frame.
+    """Wait for audio from the frontend.
 
-    Implements a two-stage timeout:
-    - After 60s without audio: sends a check-in message + TTS
-    - After 120s total: sends timeout notice and raises disconnect
+    The frontend controls when recording stops — the backend never
+    enforces a hard audio-receive timeout that could cut the applicant
+    off mid-sentence.  Instead:
+
+    - Short 2-second polls are used so we can react to signals quickly.
+    - ``recording_started`` / ``ready`` signals reset the idle timer so
+      the check-in is never fired while the applicant is speaking.
+    - ``recording_stopped`` is a heads-up that the audio blob is on its
+      way; we simply continue waiting for it.
+    - A gentle 60-second check-in plays only during genuine silence.
+    - The session ends only after 3 full minutes of uninterrupted silence.
 
     Returns audio bytes, or raises WebSocketDisconnect.
     """
     check_in_sent = False
+    is_recording = False
     start_time = asyncio.get_event_loop().time()
 
     while True:
-        elapsed = asyncio.get_event_loop().time() - start_time
-
-        # After 120s — end session
-        if elapsed > 120:
-            await _send_json(ws, {
-                "type": "timeout",
-                "text": (
-                    "I have not received a response. The interview session "
-                    "will now end. Please contact the recruiter for a new interview link."
-                ),
-            })
-            raise WebSocketDisconnect(code=1000)
-
-        # After 60s — ARIA checks in
-        if elapsed > 60 and not check_in_sent:
-            check_in_sent = True
-            checkin_text = "Are you still there? Take your time, I am ready when you are."
-            await _send_json(ws, {"type": "checkin", "text": checkin_text})
-            audio = await synthesize(checkin_text)
-            await _send_audio(ws, audio)
-
         try:
-            msg = await asyncio.wait_for(ws.receive(), timeout=5.0)
+            # Short poll so we can evaluate signals promptly
+            msg = await asyncio.wait_for(ws.receive(), timeout=2.0)
         except asyncio.TimeoutError:
+            elapsed = asyncio.get_event_loop().time() - start_time
+
+            # End session after 3 minutes of silence (not while recording)
+            if elapsed > 180 and not is_recording:
+                await _send_json(ws, {
+                    "type": "timeout",
+                    "text": (
+                        "The session has timed out due to inactivity. "
+                        "Please contact the recruiter for a new interview link."
+                    ),
+                })
+                raise WebSocketDisconnect(code=1000)
+
+            # Check-in after 60 s of silence — only when NOT recording
+            if elapsed > 60 and not check_in_sent and not is_recording:
+                check_in_sent = True
+                checkin_text = "Are you still there? Take your time, I am ready when you are."
+                await _send_json(ws, {"type": "checkin", "text": checkin_text})
+                audio = await synthesize(checkin_text)
+                await _send_audio(ws, audio)
+
             continue
 
         if msg.get("type") == "websocket.disconnect":
             raise WebSocketDisconnect(code=1000)
+
+        # ── Binary frame ── audio blob from applicant, return immediately
         if msg.get("bytes"):
             return msg["bytes"]
-        # Text frames (e.g. typing indicator) reset the timer
+
+        # ── Text frame ── control signals from frontend
         if msg.get("text"):
             try:
                 data = json.loads(msg["text"])
-                if data.get("type") == "typing":
+                msg_type = data.get("type", "")
+
+                if msg_type == "ready":
+                    # Frontend finished playing ARIA audio; reset idle clock
                     start_time = asyncio.get_event_loop().time()
                     check_in_sent = False
+                    is_recording = False
+
+                elif msg_type == "recording_started":
+                    # Applicant is actively speaking; never send check-in now
+                    start_time = asyncio.get_event_loop().time()
+                    check_in_sent = False
+                    is_recording = True
+
+                elif msg_type == "recording_stopped":
+                    # Audio blob is about to arrive; keep waiting
+                    is_recording = False
+
             except Exception:
                 pass
 
@@ -222,10 +250,13 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
 
         # ── Check if resuming an existing interview ───────────────────────
         is_resuming = len(state.conversation_history) > 0 and state.question_count > 0
+        skip_question_node = False
 
         if is_resuming:
-            # Send resume signal with existing conversation history
+            # Real reconnect — WebSocket just opened with existing state in Redis
             logger.info("Resuming interview for session %s (Q%d)", session_id, state.question_count)
+            candidate_addr = state.candidate_address or (state.candidate_name or "there").split()[0]
+
             await _send_json(ws, {
                 "type": "resume",
                 "question_count": state.question_count,
@@ -236,26 +267,26 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
             })
             await _send_debug(ws, state, "resume")
 
-            # Find the last ARIA question to re-speak
+            # Find the last ARIA question
             last_aria_text = None
             for turn in reversed(state.conversation_history):
                 if turn.role == "aria":
                     last_aria_text = turn.content
                     break
 
-            # Check if the last turn was from ARIA (waiting for applicant response)
             last_turn_role = state.conversation_history[-1].role if state.conversation_history else None
 
             if last_turn_role == "aria" and last_aria_text:
-                # ARIA was waiting for a response — re-speak the last question
-                resume_msg = "Welcome back! Let me repeat my last question. "
+                # ARIA was waiting for a response — repeat the last question
+                resume_msg = f"Welcome back, {candidate_addr}! Let me repeat my last question. "
                 await _aria_speak(ws, resume_msg + last_aria_text, question_count=state.question_count)
+                # Question already sent — skip question_node on first loop iteration
+                skip_question_node = True
             else:
-                # Applicant had answered — continue with next question
-                resume_msg = "Welcome back! Let us continue where we left off."
+                # Applicant had answered — generate next question
+                resume_msg = f"Welcome back, {candidate_addr}! Let us continue where we left off."
                 await _aria_speak(ws, resume_msg, question_count=state.question_count)
 
-                # Generate the next question
                 await _send_json(ws, {"type": "thinking"})
                 updates = await question_node(state)
                 state = _apply(state, updates)
@@ -264,6 +295,8 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
 
                 next_question = state.conversation_history[-1].content if state.conversation_history else "Please continue."
                 await _aria_speak(ws, next_question, question_count=state.question_count)
+                # Question already sent — skip question_node on first loop iteration
+                skip_question_node = True
 
         else:
             # ── Fresh start: ARIA introduction ────────────────────────────
@@ -398,13 +431,18 @@ async def interview_websocket(ws: WebSocket, session_id: str) -> None:
 
             else:
                 # ── Next question ─────────────────────────────────────────
-                updates = await question_node(state)
-                state = _apply(state, updates)
-                await redis_client.set_json(f"session:{session_id}", state.model_dump())
-                await _send_debug(ws, state, "question_node")
+                # Skip question_node on first iteration after resume
+                # (question was already sent above)
+                if skip_question_node:
+                    skip_question_node = False
+                else:
+                    updates = await question_node(state)
+                    state = _apply(state, updates)
+                    await redis_client.set_json(f"session:{session_id}", state.model_dump())
+                    await _send_debug(ws, state, "question_node")
 
-                next_question = state.conversation_history[-1].content if state.conversation_history else "Please continue."
-                await _aria_speak(ws, next_question, question_count=state.question_count)
+                    next_question = state.conversation_history[-1].content if state.conversation_history else "Please continue."
+                    await _aria_speak(ws, next_question, question_count=state.question_count)
 
     except WebSocketDisconnect:
         logger.info("Client disconnected from session %s", session_id)

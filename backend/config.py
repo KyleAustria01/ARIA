@@ -21,11 +21,21 @@ class Settings(BaseSettings):
     redis_url: str = Field("redis://localhost:6379", env="REDIS_URL")
     redis_ttl_hours: int = Field(24, env="REDIS_TTL_HOURS")
 
-    # LLM providers (fallback: cerebras → groq → gemini → ollama)
+    # LLM providers (fallback: cerebras → groq → bedrock → gemini → ollama)
     cerebras_api_key: str = Field("", env="CEREBRAS_API_KEY")
     groq_api_key: str = Field("", env="GROQ_API_KEY")
     gemini_api_key: str = Field("", env="GEMINI_API_KEY")
     ollama_base_url: str = Field("http://localhost:11434", env="OLLAMA_BASE_URL")
+
+    # AWS Bedrock
+    aws_access_key_id: str = Field("", env="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: str = Field("", env="AWS_SECRET_ACCESS_KEY")
+    aws_region: str = Field("ap-southeast-1", env="AWS_REGION")
+    aws_bedrock_model_id: str = Field(
+        "amazon.nova-lite-v1:0",
+        env="AWS_BEDROCK_MODEL_ID",
+    )
+    aws_bedrock_api_key: str = Field("", env="AWS_BEDROCK_API_KEY")
 
     # STT
     # groq whisper uses groq_api_key above

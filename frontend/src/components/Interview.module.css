@@ -189,6 +189,49 @@
   background: #3730a3;
   cursor: not-allowed;
 }
+
+/* Auto-submit review bar */
+.autoSubmitBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding: 0.6rem 1rem;
+  background: #1e1e2e;
+  border: 1px solid #6366f1;
+  border-radius: 8px;
+  color: #c4b5fd;
+  font-size: 0.95rem;
+}
+
+.cancelBtn {
+  background: transparent;
+  color: #f87171;
+  border: 1px solid #f87171;
+  border-radius: 6px;
+  padding: 0.35em 0.9em;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.cancelBtn:hover {
+  background: #2d1010;
+}
+.shortWarning {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #2d2510;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  margin-top: 0.75rem;
+  color: #fbbf24;
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
 .transcript {
   margin-top: 2.5rem;
   background: #111113;
@@ -272,6 +315,7 @@
   font-size: 1.1rem;
   font-weight: 500;
 }
+
 @media (max-width: 600px) {
   .welcomeCard, .interviewCard, .verdictCard, .transcript {
     padding: 1.2rem 0.5rem 1rem 0.5rem;

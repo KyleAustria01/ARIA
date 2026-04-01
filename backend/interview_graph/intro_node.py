@@ -40,29 +40,37 @@ async def intro_node(state: InterviewState) -> dict:
     skills_line = f"Their key skills: {', '.join(state.candidate_skills[:6])}" if state.candidate_skills else ""
     exp_line = f"Total experience: ~{state.total_experience_years} years" if state.total_experience_years else ""
 
-    prompt = f"""{ARIA_PERSONALITY}
+    first_name = address.split()[0] if address else "there"
 
-You are starting a pre-screening interview for {state.company or 'our company'}.
+    prompt = f"""Write a natural, warm interview opening for {address}.
 
-Candidate: {state.candidate_name or 'the candidate'}
-How to address them: "{address}"
 Role: {state.job_title or 'the open position'}
+Company: {state.company or 'our company'}
 {current_role_line}
 {skills_line}
 {exp_line}
 
-Write a warm, conversational interview introduction that:
-1. Greets the candidate as "{address}"
-2. Introduces yourself as ARIA briefly (one clause, not a speech)
-3. Mentions the role they're interviewing for
-4. Says this will be a relaxed ~10-15 minute conversation
-5. Ends by asking them to start by walking you through their background —
-   their career journey, what they've been working on recently, and what
-   brought them to apply for this role
+The opening must:
+1. Introduce yourself as ARIA briefly
+2. Mention the role: {state.job_title or 'the position'}
+3. Set a relaxed, conversational tone
+4. End with an open question about their recent work or background
 
-Keep it to 4-5 sentences MAX. Sound natural when spoken aloud.
-Do NOT list bullet points or use formal corporate language.
-Do NOT ask a technical question.
+Keep it to 3-4 sentences maximum.
+Sound like a real person starting a conversation, not reading a script.
+
+DO NOT say:
+- "It is a pleasure to meet you"
+- "Good morning" or "Good afternoon" or "Good evening"
+- "I see you have a strong background"
+- "We are excited to have you"
+- "Welcome to this interview"
+
+DO say something like:
+"Hi {first_name}, I am ARIA and I will be conducting your pre-screening today
+for the {state.job_title or 'open'} position. Let us keep this conversational —
+can you start by telling me what you have been working on most recently?"
+
 Output ONLY the spoken text."""
 
     logger.info(
@@ -83,13 +91,11 @@ Output ONLY the spoken text."""
     except Exception as exc:
         logger.warning("LLM intro generation failed (%s), using fallback", exc)
         intro_text = (
-            f"Good day, {address}! Welcome — I'm ARIA, and I'll be chatting with you today "
-            f"about the {state.job_title or 'open'} position"
+            f"Hi {address.split()[0] if address else 'there'}, I am ARIA and I will be handling "
+            f"your pre-screening today for the {state.job_title or 'open'} position"
             f"{' at ' + state.company if state.company else ''}. "
-            "This should be a pretty relaxed conversation, about 10 to 15 minutes. "
-            "To kick things off, I'd love to hear you walk me through your background — "
-            "your career journey so far, what you've been working on recently, "
-            "and what got you interested in this role."
+            "Let us keep this conversational — can you start by telling me "
+            "what you have been working on most recently?"
         )
 
     greeting_turn = ConversationTurn(

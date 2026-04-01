@@ -23,9 +23,21 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # AWS Bedrock (optional LLM fallback)
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: ap-southeast-1
+      - key: AWS_BEDROCK_MODEL_ID
+        value: amazon.nova-lite-v1:0
+      - key: AWS_BEDROCK_API_KEY
+        sync: false
+      # TTS
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: ELEVENLABS_VOICE_ID
-        sync: false
+        value: 21m00Tcm4TlvDq8ikWAM
       - key: TAVILY_API_KEY
         sync: false

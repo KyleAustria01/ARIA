@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import styles from "./Interview.module.css";
 
@@ -29,13 +29,13 @@ const VerdictBadge = ({ verdict }: { verdict: string }) => {
 
 const Interview: React.FC = () => {
   const { token } = useParams<{ token: string }>();
-  const [step, setStep] = useState<'welcome'|'interview'|'verdict'>('welcome');
+  const [step, setStep] = useState<'pre_interview'|'interview'|'verdict'>('pre_interview');
   const [applicant, setApplicant] = useState<{name: string, role: string}|null>(null);
   const [resumeFile, setResumeFile] = useState<File|null>(null);
   const [resumeUploaded, setResumeUploaded] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string|null>(null);
-  const [ws, setWs] = useState<WebSocket|null>(null);
+  // wsRef lives at component top level — never has a stale-closure problem
   const wsRef = useRef<WebSocket|null>(null);
   const [ariaSpeaking, setAriaSpeaking] = useState(false);
   const [question, setQuestion] = useState<string>("");
@@ -49,7 +49,12 @@ const Interview: React.FC = () => {
   const [error, setError] = useState<string|null>(null);
   const mediaRecorder = useRef<MediaRecorder|null>(null);
   const audioChunks = useRef<Blob[]>([]);
+  const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const waveformRef = useRef<HTMLCanvasElement>(null);
+  const recordingStartTime = useRef<number>(0);
+  const [shortRecordingWarning, setShortRecordingWarning] = useState(false);
+
+
 
   // Validate token and get applicant info
   useEffect(() => {
@@ -99,102 +104,152 @@ const Interview: React.FC = () => {
   // Audio queue for sequential playback
   const audioQueue = useRef<string[]>([]);
   const isPlaying = useRef(false);
-  const playNextAudio = () => {
+
+  // playNextAudio uses refs only (empty dep array) — never captures stale state
+  const playNextAudio = useCallback(() => {
     if (isPlaying.current || audioQueue.current.length === 0) return;
     isPlaying.current = true;
     const url = audioQueue.current.shift()!;
     const audio = new Audio(url);
     setStatus('aria_speaking');
-    audio.onended = () => {
+
+    const handleDone = () => {
       isPlaying.current = false;
       URL.revokeObjectURL(url);
       if (audioQueue.current.length > 0) {
         playNextAudio();
       } else {
+        // All audio finished — re-enable mic
         setStatus('recording_ready');
         setProcessing(false);
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: "ready" }));
+        // Always read the current ws from the ref, never from a closure
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ready" }));
         }
       }
     };
-    audio.play();
-  };
+
+    audio.onended = handleDone;
+    audio.onerror = () => {
+      console.error('Audio playback failed');
+      handleDone();
+    };
+    audio.play().catch(() => {
+      // Autoplay blocked or other failure — still enable the mic
+      audio.onerror?.(new Event('error'));
+    });
+  }, []); // empty — relies solely on refs
+
+  // Safety net: if status gets stuck on a non-interactive state for 30 s,
+  // force-reset so the mic never remains permanently disabled.
+  useEffect(() => {
+    const STUCK_TIMEOUT = 30_000;
+    if (status === 'aria_speaking' || status === 'processing') {
+      const t = setTimeout(() => {
+        console.warn('[ARIA] Status stuck on', status, '— force resetting to recording_ready');
+        setStatus('recording_ready');
+        setProcessing(false);
+      }, STUCK_TIMEOUT);
+      return () => clearTimeout(t);
+    }
+  }, [status]);
 
   useEffect(() => {
-    if (step !== 'interview' || !token) return;
-    const socket = new window.WebSocket(`ws://localhost:8000/ws/interview/${token}`);
-    setWs(socket);
+    if (step !== 'interview') return;
+    // Avoid re-connecting if already open
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+    if (!token) return;
+
+    const wsBase = import.meta.env.VITE_WS_URL || `ws://localhost:8000`;
+    const socket = new window.WebSocket(`${wsBase}/ws/interview/${token}`);
     wsRef.current = socket;
-    let llmTimeout: NodeJS.Timeout | null = null;
-    let llmLongTimeout: NodeJS.Timeout | null = null;
-    const clearLLMTimers = () => {
-      if (llmTimeout) clearTimeout(llmTimeout);
-      if (llmLongTimeout) clearTimeout(llmLongTimeout);
-      llmTimeout = null;
-      llmLongTimeout = null;
-    };
+
     socket.onopen = () => {
-      setStatus("ARIA is speaking...");
+      setStatus('Connecting...');
+      // Send start signal immediately — no identity check needed
+      socket.send(JSON.stringify({ type: 'start' }));
     };
+
     socket.onmessage = async (event) => {
       // Binary = audio from ARIA
       if (event.data instanceof Blob) {
-        clearLLMTimers();
         const url = URL.createObjectURL(event.data);
         audioQueue.current.push(url);
         playNextAudio();
         return;
       }
 
-      // JSON = question, transcript, verdict
-      const msg = JSON.parse(event.data);
-      console.log('WS message:', msg);
+      // JSON messages
+      try {
+        const msg = JSON.parse(event.data);
+        console.log('WS message:', msg);
 
-      if (msg.type === 'welcome') {
-        clearLLMTimers();
-        setQuestion(msg.text);
-        setCurrentQuestion(msg.text);
-        setStatus('aria_speaking');
-        setAriaSpeaking(true);
-        // Audio will follow as binary
-      }
-      if (msg.type === 'question') {
-        clearLLMTimers();
-        setQuestion(msg.text);
-        setCurrentQuestion(msg.text);
-        setStatus('aria_speaking');
-        setAriaSpeaking(true);
-        // Audio will follow as binary
-      }
-      if (msg.type === 'transcript') {
-        clearLLMTimers();
-        // Add new transcript entry with real text from backend
-        setTranscript(t => [...t, { q: currentQuestion, a: msg.text }]);
-      }
-      if (msg.type === 'verdict') {
-        clearLLMTimers();
-        setVerdict(msg.data || msg.text);
-        setStatus('complete');
-        setStep('verdict');
-      }
-      if (msg.type === 'error') {
-        clearLLMTimers();
-        setError(msg.text);
+        switch (msg.type) {
+          case 'transcript':
+            if (msg.role === 'aria') {
+              setQuestion(msg.text);
+              setCurrentQuestion(msg.text);
+              setStatus('aria_speaking');
+              setAriaSpeaking(true);
+            } else {
+              setTranscript(t => [...t, { q: currentQuestion, a: msg.text }]);
+            }
+            break;
+
+          case 'thinking':
+            setStatus('processing');
+            setProcessing(true);
+            break;
+
+          case 'checkin':
+            setStatus('recording_ready');
+            break;
+
+          case 'resume':
+            // Restore transcript from resumed session
+            if (msg.conversation_history) {
+              const restored: {q: string, a: string}[] = [];
+              let lastQ = '';
+              for (const turn of msg.conversation_history) {
+                if (turn.role === 'aria') lastQ = turn.text;
+                else restored.push({ q: lastQ, a: turn.text });
+              }
+              setTranscript(restored);
+            }
+            setStatus('aria_speaking');
+            break;
+
+          case 'verdict':
+            setVerdict(msg.data || msg.text);
+            setStatus('complete');
+            setStep('verdict');
+            break;
+
+          case 'error':
+            setError(msg.text || msg.message);
+            break;
+
+          case 'timeout':
+            setError(msg.text);
+            break;
+
+          case 'debug':
+            // Development-only state snapshots — ignore in UI
+            break;
+
+          default:
+            console.log('Unknown WS message type:', msg.type);
+        }
+      } catch (e) {
+        console.error('Failed to parse WS message:', e);
       }
     };
-    socket.onerror = () => setError("WebSocket error. Please refresh.");
+
+    socket.onerror = () => setError('WebSocket error. Please refresh.');
     socket.onclose = () => {};
 
-    // LLM processing status timers
-    llmTimeout = setTimeout(() => {
-      setStatus('ARIA is thinking...');
-    }, 2000);
-    llmLongTimeout = setTimeout(() => {
-      setStatus('Still processing, please wait...');
-    }, 10000);
-
-    return () => { socket.close(); clearLLMTimers(); };
+    return () => { socket.close(); wsRef.current = null; };
     // eslint-disable-next-line
   }, [step, token]);
 
@@ -215,34 +270,98 @@ const Interview: React.FC = () => {
 
   // Audio recording
   const startRecording = async () => {
-    setRecording(true);
-    setAudioBlob(null);
-    audioChunks.current = [];
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    mediaRecorder.current = recorder;
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunks.current.push(e.data);
-    };
-    recorder.onstop = () => {
-      const blob = new Blob(audioChunks.current, { type: 'audio/webm' });
-      setAudioBlob(blob);
-      stream.getTracks().forEach(track => track.stop());
-    };
-    recorder.start();
+    try {
+      setRecording(true);
+      setAudioBlob(null);
+      audioChunks.current = [];
+      setStatus('recording');
+      setShortRecordingWarning(false);
+      recordingStartTime.current = Date.now();
+
+      // Notify backend: applicant started speaking — pause check-in timer
+      wsRef.current?.send(JSON.stringify({ type: "recording_started" }));
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm'
+      });
+      mediaRecorder.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunks.current, { type: 'audio/webm' });
+        stream.getTracks().forEach(track => track.stop());
+        const durationMs = Date.now() - recordingStartTime.current;
+
+        // If recording < 2 seconds — likely accidental stop, don't auto-submit
+        if (durationMs < 2000) {
+          setAudioBlob(blob);
+          setStatus('recording_ready');
+          setShortRecordingWarning(true);
+          setTimeout(() => setShortRecordingWarning(false), 5000);
+          return;
+        }
+
+        // Brief review window before auto-submit
+        setAudioBlob(blob);
+        setStatus('review');
+
+        // Auto-submit after 1.5 s — user can cancel during this window
+        autoSubmitTimer.current = setTimeout(() => {
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            setProcessing(true);
+            setStatus('processing');
+            wsRef.current.send(JSON.stringify({ type: "recording_stopped" }));
+            setTimeout(() => {
+              wsRef.current?.send(blob);
+              setAudioBlob(null);
+            }, 100);
+          }
+        }, 1500);
+      };
+
+      recorder.start(250); // collect in 250 ms chunks
+    } catch (err) {
+      console.error('Recording failed:', err);
+      setRecording(false);
+      setStatus('recording_ready');
+    }
   };
+
   const stopRecording = () => {
     setRecording(false);
     mediaRecorder.current?.stop();
+    // Status stays as-is until onstop fires and sets 'review'
   };
 
-  // Send audio to backend
+  // Send audio to backend manually (used when auto-submit is cancelled and re-triggered)
   const handleSubmitAnswer = () => {
     if (!wsRef.current || !audioBlob) return;
+    if (autoSubmitTimer.current) {
+      clearTimeout(autoSubmitTimer.current);
+      autoSubmitTimer.current = null;
+    }
     setProcessing(true);
-    setStatus("processing");
-    wsRef.current.send(audioBlob);
+    setStatus('processing');
+    wsRef.current.send(JSON.stringify({ type: "recording_stopped" }));
+    setTimeout(() => {
+      wsRef.current?.send(audioBlob!);
+      setAudioBlob(null);
+    }, 100);
+  };
+
+  const cancelAutoSubmit = () => {
+    if (autoSubmitTimer.current) {
+      clearTimeout(autoSubmitTimer.current);
+      autoSubmitTimer.current = null;
+    }
     setAudioBlob(null);
+    setStatus('recording_ready');
   };
 
   // Drag and drop events
@@ -255,7 +374,8 @@ const Interview: React.FC = () => {
   if (error) {
     return <div className={styles.interviewRoot}><div className={styles.welcomeCard}><h2>Error</h2><div>{error}</div></div></div>;
   }
-  if (step === 'welcome' && applicant) {
+
+  if (step === 'pre_interview' && applicant) {
     return (
       <div className={styles.interviewRoot}>
         {AVATAR}
@@ -280,6 +400,9 @@ const Interview: React.FC = () => {
             {uploadError && <div style={{ color: '#f87171', marginTop: 8 }}>{uploadError}</div>}
           </div>
           <button className={styles.startBtn} disabled={!resumeUploaded} onClick={() => setStep('interview')}>Start Interview</button>
+          <button className={styles.startBtn} onClick={() => setStep('interview')} style={{ marginTop: 8, opacity: resumeUploaded ? 0 : 0.7 }}>
+            {resumeUploaded ? '' : 'Skip Resume & Start'}
+          </button>
         </div>
       </div>
     );
@@ -294,6 +417,7 @@ const Interview: React.FC = () => {
             {status === 'aria_speaking' && 'ARIA is speaking...'}
             {status === 'recording_ready' && 'Your turn — press mic to answer'}
             {status === 'recording' && 'Recording... click to stop'}
+            {status === 'review' && 'Answer recorded'}
             {status === 'processing' && 'Processing your answer...'}
             {status === 'ARIA is thinking...' && 'ARIA is thinking...'}
             {status === 'Still processing, please wait...' && 'Still processing, please wait...'}
@@ -302,6 +426,7 @@ const Interview: React.FC = () => {
               'aria_speaking',
               'recording_ready',
               'recording',
+              'review',
               'processing',
               'ARIA is thinking...',
               'Still processing, please wait...',
@@ -311,13 +436,43 @@ const Interview: React.FC = () => {
           <button
             className={recording ? styles.micBtn + ' ' + styles.micRecording : styles.micBtn + ' ' + styles.micIdle}
             onClick={recording ? stopRecording : startRecording}
-            disabled={status !== 'recording_ready' || recording}
+            disabled={status !== 'recording_ready' && status !== 'recording'}
+            title={
+              status === 'aria_speaking'
+                ? 'Wait for ARIA to finish speaking'
+                : status === 'processing'
+                ? 'Processing your answer...'
+                : status === 'review'
+                ? 'Answer recorded — sending shortly'
+                : 'Press to record your answer'
+            }
             aria-label={recording ? "Stop recording" : "Start recording"}
           >
             <span role="img" aria-label="mic">🎤</span>
           </button>
           {recording && <div className={styles.waveform}>[Waveform]</div>}
-          {audioBlob && (
+
+          {/* Auto-submit review bar */}
+          {status === 'review' && (
+            <div className={styles.autoSubmitBar}>
+              <span>Sending answer in 1.5 s…</span>
+              <button className={styles.cancelBtn} onClick={cancelAutoSubmit}>
+                Cancel &amp; Re-record
+              </button>
+            </div>
+          )}
+
+          {/* Short recording warning */}
+          {shortRecordingWarning && audioBlob && (
+            <div className={styles.shortWarning}>
+              <span>⚠️ Recording was very short. Done or re-record?</span>
+              <button className={styles.submitBtn} onClick={handleSubmitAnswer}>Submit Answer</button>
+              <button className={styles.cancelBtn} onClick={() => { setShortRecordingWarning(false); setAudioBlob(null); startRecording(); }}>Record Again</button>
+            </div>
+          )}
+
+          {/* Manual submit — only shown if review state was cancelled and blob still present */}
+          {audioBlob && status === 'recording_ready' && !shortRecordingWarning && (
             <button className={styles.submitBtn} onClick={handleSubmitAnswer} disabled={processing}>Submit</button>
           )}
         </div>

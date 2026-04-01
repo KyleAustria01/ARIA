@@ -19,6 +19,7 @@ import unicodedata
 
 from backend.interview_graph.prompts import (
     ARIA_SCORING_RULES,
+    analyze_answer_quality,
     detect_wrap_up_request,
 )
 from backend.interview_graph.state import InterviewState
@@ -67,6 +68,20 @@ _ELABORATE_PATTERNS = [
     "could you rephrase",
     "can you repeat",
     "say that again",
+    "make it easier",
+    "make the question easier",
+    "can you give a scenario",
+    "give me an example",
+    "give me a scenario",
+    "can you elaborate on the question",
+    "can you be more specific",
+    "scenario",
+    "example please",
+    "simpler",
+    "easier question",
+    "different way",
+    "rephrase",
+    "put it differently",
 ]
 
 
@@ -115,6 +130,53 @@ def _detect_elaborate_request(transcript: str) -> bool:
     """Return True if the candidate is asking ARIA for clarification."""
     text_lower = transcript.lower()
     return any(p in text_lower for p in _ELABORATE_PATTERNS)
+
+
+_TRAILING_INCOMPLETE = [
+    "so", "and", "but", "yeah", "like", "then", "also", "or",
+    "something", "etc", "basically", "actually", "well",
+    # Prepositions / articles / pronouns — sentence clearly cut mid-thought
+    "is", "are", "was", "were", "the", "a", "an",
+    "because", "that", "which", "with", "for", "on",
+    "in", "at", "to", "of", "by", "now", "currently",
+    "just", "when", "where", "how", "what", "why",
+    "i", "we", "they", "it", "this", "my", "our", "their",
+]
+
+_VAGUE_ENDINGS = [
+    "something like that", "and so on", "and stuff",
+    "and yeah", "you know", "things like that",
+]
+
+
+def _is_answer_incomplete(transcript: str) -> bool:
+    """Check if the candidate's answer seems cut off or incomplete.
+
+    Detects trailing filler words, very short technical answers,
+    and vague endings that suggest the candidate had more to say.
+
+    Args:
+        transcript: Raw transcribed answer.
+
+    Returns:
+        True if the answer appears incomplete.
+    """
+    text = transcript.strip().lower()
+    words = text.split()
+    if not words:
+        return False
+
+    last_word = words[-1].rstrip(".!?,")
+    ends_incomplete = last_word in _TRAILING_INCOMPLETE
+
+    too_short = len(words) < 25
+
+    vague_ending = any(text.endswith(p) for p in _VAGUE_ENDINGS)
+
+    # Ends on a connecting/function word = clearly cut mid-sentence
+    # Vague ending = likely had more to say
+    # Very short + trailing = probably cut off
+    return ends_incomplete or vague_ending
 
 
 def _is_non_answer(text: str) -> bool:
@@ -192,8 +254,14 @@ async def evaluate_answer_node(state: InterviewState) -> dict:
     is_explicit_non_answer = _detect_non_answer(last_answer)
     wants_to_end = detect_wrap_up_request(last_answer)
 
+    # Richer quality analysis for comfort-level routing
+    answer_quality = analyze_answer_quality(last_answer)
+
+    # Detect incomplete / cut-off answers
+    answer_incomplete = _is_answer_incomplete(last_answer)
+
     # Track nervousness across consecutive turns
-    if speech["is_nervous"]:
+    if speech["is_nervous"] or answer_quality["is_nervous"]:
         new_nervous = True
         new_consec = state.consecutive_nervous_count + 1
     else:
@@ -204,8 +272,12 @@ async def evaluate_answer_node(state: InterviewState) -> dict:
         "candidate_nervous": new_nervous,
         "consecutive_nervous_count": new_consec,
         "elaborate_requested": is_elaborate_req,
+        "clarification_requested": is_elaborate_req,
+        "last_question_asked": last_question if is_elaborate_req else "",
         "speech_quality_history": state.speech_quality_history + [speech],
         "candidate_wants_to_end": wants_to_end or state.candidate_wants_to_end,
+        "last_answer_quality": answer_quality,
+        "last_answer_incomplete": answer_incomplete,
     }
 
     # ── Handle wrap-up request — flag and short-circuit ──────────────────

@@ -98,8 +98,12 @@ class InterviewState(BaseModel):
     candidate_nervous: bool = False
     consecutive_nervous_count: int = 0
     elaborate_requested: bool = False
+    clarification_requested: bool = False     # Candidate asked for rephrase/scenario
+    last_question_asked: str = ""              # The question to rephrase on clarification
     non_answer_count: int = 0
     speech_quality_history: list[dict[str, Any]] = Field(default_factory=list)
+    last_answer_quality: dict[str, Any] = Field(default_factory=dict)  # from analyze_answer_quality
+    last_answer_incomplete: bool = False  # True when answer seems cut off
 
     # --- Wrap-up / interview flow control ---
     candidate_wants_to_end: bool = False       # Candidate signalled end request
