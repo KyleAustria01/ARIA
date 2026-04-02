@@ -95,17 +95,25 @@ const InterviewPageSSE: React.FC = () => {
       setIsSpeaking(false);
     },
     onAudio: async (audioBase64, format) => {
+      console.log("[InterviewSSE] onAudio called, format:", format, "base64 length:", audioBase64?.length);
+      if (!audioBase64) {
+        console.error("[InterviewSSE] No audio data received!");
+        return;
+      }
       setIsSpeaking(true);
       try {
         // Decode base64 to ArrayBuffer
         const binary = atob(audioBase64);
+        console.log("[InterviewSSE] Decoded base64, binary length:", binary.length);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {
           bytes[i] = binary.charCodeAt(i);
         }
+        console.log("[InterviewSSE] Playing audio, buffer size:", bytes.buffer.byteLength);
         await playAudio(bytes.buffer);
+        console.log("[InterviewSSE] Audio playback finished");
       } catch (err) {
-        console.error("Audio playback failed:", err);
+        console.error("[InterviewSSE] Audio playback failed:", err);
       } finally {
         setIsSpeaking(false);
       }

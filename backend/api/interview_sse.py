@@ -22,6 +22,7 @@ from backend.audio.stt import transcribe
 from backend.audio.tts import synthesize
 from backend.config import settings
 from backend.interview.engine import InterviewEngine
+from backend.interview.state import InterviewState
 from backend.redis_client import redis_client
 
 router = APIRouter(prefix="/api/interview", tags=["interview"])
@@ -36,27 +37,51 @@ def sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+def get_interview_phase(state: InterviewState) -> str:
+    """Derive interview phase from state."""
+    if state.is_complete:
+        return "complete"
+    if state.question_count == 0:
+        return "intro"
+    if state.question_count >= state.max_questions - 2:
+        return "closing"
+    return "questioning"
+
+
 async def get_engine(session_id: str) -> InterviewEngine:
     """Load interview engine from Redis."""
-    raw = await redis_client.get(f"session:{session_id}")
-    if not raw:
+    # Use get_json for consistency with recruiter API
+    data = await redis_client.get_json(f"session:{session_id}")
+    if not data:
         raise HTTPException(status_code=404, detail="Session not found")
     
-    data = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())
-    engine = InterviewEngine.from_dict(data.get("engine", data))
-    return engine
+    # Check if engine is already saved in session
+    if "engine" in data:
+        return InterviewEngine.from_dict(data["engine"])
+    
+    # No engine yet - create from session state
+    # Session was created by recruiter with InterviewState.model_dump()
+    state = InterviewState(**data)
+    return InterviewEngine(state)
 
 
 async def save_engine(session_id: str, engine: InterviewEngine):
     """Save interview engine to Redis."""
-    raw = await redis_client.get(f"session:{session_id}")
-    if raw:
-        data = json.loads(raw) if isinstance(raw, str) else json.loads(raw.decode())
-    else:
+    # Get existing session data
+    data = await redis_client.get_json(f"session:{session_id}")
+    if not data:
         data = {}
     
+    # Update engine in session data (preserve other fields)
     data["engine"] = engine.to_dict()
-    await redis_client.set(f"session:{session_id}", json.dumps(data))
+    
+    # Also update top-level state fields for backward compatibility
+    state_dict = engine.state.model_dump()
+    for key, value in state_dict.items():
+        data[key] = value
+    
+    await redis_client.set_json(f"session:{session_id}", data)
+    print(f"[SSE] Engine saved for session {session_id}")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -72,22 +97,30 @@ async def stream_start(session_id: str) -> AsyncGenerator[str, None]:
         
         # Generate greeting
         greeting = await engine.generate_greeting()
+        
+        # Stream text immediately - don't wait for TTS
         yield sse_event("response", {"text": greeting, "complete": True})
-        
-        # Generate TTS
         yield sse_event("phase", {"phase": "synthesizing", "message": "Generating audio..."})
+        
+        # Generate TTS (happens after text is already shown)
         audio_bytes = await synthesize(greeting)
-        audio_b64 = base64.b64encode(audio_bytes).decode() if audio_bytes else None
+        print(f"[SSE] TTS returned {len(audio_bytes) if audio_bytes else 0} bytes")
         
-        if audio_b64:
+        if audio_bytes:
+            audio_b64 = base64.b64encode(audio_bytes).decode()
+            print(f"[SSE] Sending audio event, base64 length: {len(audio_b64)}")
             yield sse_event("audio", {"data": audio_b64, "format": "mp3"})
+        else:
+            print("[SSE] No audio generated!")
         
-        # Save state
+        # Save state BEFORE sending done event
         await save_engine(session_id, engine)
         
         yield sse_event("phase", {"phase": "intro", "message": "Waiting for introduction"})
-        yield sse_event("done", {"success": True})
+        yield sse_event("done", {"success": True, "question_count": 0, "max_questions": engine.state.max_questions})
         
+    except HTTPException as e:
+        yield sse_event("error", {"message": f"{e.status_code}: {e.detail}"})
     except Exception as e:
         traceback.print_exc()
         yield sse_event("error", {"message": str(e)})
@@ -106,7 +139,6 @@ async def stream_turn(
         transcript = user_text
         if audio_path and not transcript:
             yield sse_event("phase", {"phase": "transcribing", "message": "Processing audio..."})
-            # Read audio file and transcribe
             audio_bytes = Path(audio_path).read_bytes()
             suffix = Path(audio_path).suffix or ".webm"
             transcript = await transcribe(audio_bytes, suffix)
@@ -116,8 +148,8 @@ async def stream_turn(
             yield sse_event("error", {"message": "No input received"})
             return
         
-        # Check if interview is complete
-        if engine.state.phase == "complete":
+        # Check if interview is already complete
+        if engine.state.is_complete:
             yield sse_event("phase", {"phase": "complete", "message": "Interview already complete"})
             yield sse_event("done", {"success": True, "complete": True})
             return
@@ -126,35 +158,59 @@ async def stream_turn(
         yield sse_event("phase", {"phase": "thinking", "message": "Processing response..."})
         
         result = await engine.process_turn(transcript)
-        aria_response = result.get("aria_response", "")
         
-        # Stream response text
+        # TurnResult is a dataclass, access attributes directly
+        aria_response = result.aria_text
+        should_end = result.should_end
+        score_entry = result.score_entry
+        
+        # Determine current phase
+        current_phase = get_interview_phase(engine.state)
+        
+        # Stream response text immediately - don't wait for TTS
         yield sse_event("response", {
             "text": aria_response,
             "complete": True,
-            "score": result.get("score"),
-            "skill_area": result.get("skill_area"),
-            "action": result.get("action"),
+            "score": score_entry.get("score"),
+            "skill_area": score_entry.get("skill_area"),
+            "action": score_entry.get("action"),
         })
         
         # Check for phase transitions
-        current_phase = engine.state.phase
         if current_phase == "closing":
             yield sse_event("phase", {"phase": "closing", "message": "Moving to closing questions"})
-        elif current_phase == "complete":
+        
+        # Handle interview end
+        if should_end:
+            # Generate closing and verdict
+            engine.state.is_complete = True
+            await engine.generate_verdict()
+            current_phase = "complete"
             yield sse_event("phase", {"phase": "complete", "message": "Interview complete"})
         
-        # Generate TTS
+        # Generate TTS in parallel with save (for speed)
         if aria_response and current_phase != "complete":
             yield sse_event("phase", {"phase": "synthesizing", "message": "Generating audio..."})
-            audio_bytes = await synthesize(aria_response)
-            audio_b64 = base64.b64encode(audio_bytes).decode() if audio_bytes else None
             
-            if audio_b64:
+            # Run TTS and save concurrently
+            tts_task = asyncio.create_task(synthesize(aria_response))
+            save_task = asyncio.create_task(save_engine(session_id, engine))
+            
+            audio_bytes = await tts_task
+            print(f"[SSE turn] TTS returned {len(audio_bytes) if audio_bytes else 0} bytes")
+            
+            if audio_bytes:
+                audio_b64 = base64.b64encode(audio_bytes).decode()
+                print(f"[SSE turn] Sending audio event, base64 length: {len(audio_b64)}")
                 yield sse_event("audio", {"data": audio_b64, "format": "mp3"})
-        
-        # Save state
-        await save_engine(session_id, engine)
+            else:
+                print("[SSE turn] No audio generated!")
+            
+            # Wait for save to complete
+            await save_task
+        else:
+            # No TTS needed - just save
+            await save_engine(session_id, engine)
         
         # Include verdict if complete
         if current_phase == "complete":
@@ -172,6 +228,8 @@ async def stream_turn(
             "max_questions": engine.state.max_questions,
         })
         
+    except HTTPException as e:
+        yield sse_event("error", {"message": f"{e.status_code}: {e.detail}"})
     except Exception as e:
         traceback.print_exc()
         yield sse_event("error", {"message": str(e)})
@@ -255,20 +313,26 @@ async def process_turn(
 @router.get("/{session_id}/status")
 async def get_status(session_id: str):
     """Get current interview status."""
-    engine = await get_engine(session_id)
-    state = engine.state
-    
-    return {
-        "session_id": session_id,
-        "phase": state.phase,
-        "question_count": state.question_count,
-        "max_questions": state.max_questions,
-        "is_complete": state.phase == "complete",
-        "candidate_name": state.candidate_name,
-        "job_title": state.job_title,
-        "scores": state.scores,
-        "verdict": state.verdict if state.phase == "complete" else None,
-    }
+    try:
+        engine = await get_engine(session_id)
+        state = engine.state
+        phase = get_interview_phase(state)
+        
+        return {
+            "session_id": session_id,
+            "phase": phase,
+            "question_count": state.question_count,
+            "max_questions": state.max_questions,
+            "is_complete": state.is_complete,
+            "candidate_name": state.candidate_name,
+            "job_title": state.job_title,
+            "scores": state.scores,
+            "verdict": state.verdict if state.is_complete else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{session_id}/text")

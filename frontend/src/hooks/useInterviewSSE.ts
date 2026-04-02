@@ -53,6 +53,9 @@ export function useInterviewSSE(options: UseInterviewSSEOptions) {
 
     const decoder = new TextDecoder();
     let buffer = "";
+    // Persist event state across read chunks
+    let currentEventType = "";
+    let currentEventData = "";
 
     try {
       while (true) {
@@ -61,32 +64,34 @@ export function useInterviewSSE(options: UseInterviewSSEOptions) {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        let eventType = "";
-        let eventData = "";
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
         for (const line of lines) {
           if (line.startsWith("event: ")) {
-            eventType = line.slice(7).trim();
+            currentEventType = line.slice(7).trim();
           } else if (line.startsWith("data: ")) {
-            eventData = line.slice(6);
-          } else if (line === "" && eventType && eventData) {
-            // Process complete event
+            // Append data (SSE can have multiple data lines)
+            currentEventData += (currentEventData ? "\n" : "") + line.slice(6);
+          } else if (line === "" && currentEventType && currentEventData) {
+            // Empty line signals end of event - process it
             try {
-              const data = JSON.parse(eventData) as Record<string, unknown>;
+              const data = JSON.parse(currentEventData) as Record<string, unknown>;
               
-              switch (eventType) {
+              switch (currentEventType) {
                 case "phase":
+                  console.log("[SSE] Phase:", data.phase, data.message);
                   updatePhase(data.phase as InterviewPhase, data.message as string);
                   break;
                 case "transcription":
+                  console.log("[SSE] Transcription:", data.text);
                   onTranscription?.(data.text as string);
                   break;
                 case "response":
+                  console.log("[SSE] Response:", (data.text as string)?.slice(0, 100));
                   onResponse?.(data.text as string, data);
                   break;
                 case "audio":
+                  console.log("[SSE] Audio received, format:", data.format, "length:", (data.data as string)?.length);
                   onAudio?.(data.data as string, data.format as string);
                   break;
                 case "verdict":
@@ -113,10 +118,11 @@ export function useInterviewSSE(options: UseInterviewSSEOptions) {
                   break;
               }
             } catch (e) {
-              console.warn("[SSE] Failed to parse event data:", eventData, e);
+              console.warn("[SSE] Failed to parse event data:", currentEventData.slice(0, 100), e);
             }
-            eventType = "";
-            eventData = "";
+            // Reset for next event
+            currentEventType = "";
+            currentEventData = "";
           }
         }
       }

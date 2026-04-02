@@ -37,6 +37,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Dev session storage (file-based Redis fallback)
+.dev_sessions.json
+
 # Misc
 *.swp
 *.bak
