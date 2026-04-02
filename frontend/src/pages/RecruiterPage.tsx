@@ -115,10 +115,19 @@ const RecruiterPage: React.FC = () => {
 
   // Fetch sessions on mount
   useEffect(() => {
+    console.log("[Sessions] Fetching from:", `${API_ROOT}/api/recruiter/sessions`);
     fetch(`${API_ROOT}/api/recruiter/sessions`)
-      .then((r) => r.ok ? r.json() : [])
-      .then((data: SessionSummary[]) => setSessions(data))
-      .catch(() => {});
+      .then((r) => {
+        console.log("[Sessions] Response status:", r.status);
+        return r.ok ? r.json() : [];
+      })
+      .then((data: SessionSummary[]) => {
+        console.log("[Sessions] Got sessions:", data.length);
+        setSessions(data);
+      })
+      .catch((err) => {
+        console.error("[Sessions] Fetch error:", err);
+      });
   }, [prepareResult]);
 
   const extractPdf = (e: React.DragEvent): File | null => {
