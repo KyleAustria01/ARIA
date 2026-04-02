@@ -118,9 +118,10 @@ def build_turn_prompt(
     covered_str = ", ".join(covered_skills[-6:]) if covered_skills else "none"
 
     # Score summary (last 3 only)
-    recent = ""
+    recent_lines = []
     for s in state.scores[-3:]:
-        recent += f"  {s.get('skill_area','?')}: {s.get('score','?')}/10\n"
+        recent_lines.append(f"  {s.get('skill_area','?')}: {s.get('score','?')}/10")
+    recent_block = "Recent scores:\n" + "\n".join(recent_lines) + "\n" if recent_lines else ""
 
     return (
         f"Role: {state.job_title or 'the position'} | Candidate: {addr}\n"
@@ -131,7 +132,7 @@ def build_turn_prompt(
         f"  SAMPLE Q: {current_sample or 'N/A'}\n\n"
         f"NEXT SKILLS:\n{next_skills_context}\n"
         f"ALREADY COVERED (DO NOT ASK AGAIN): {covered_str}\n"
-        f"{('Recent scores:\n' + recent) if recent else ''}\n"
+        f"{recent_block}\n"
         f"CONVERSATION:\n{history}\n"
         f"CANDIDATE: \"{candidate_text[:500]}\"\n\n"
         "INSTRUCTIONS:\n"
