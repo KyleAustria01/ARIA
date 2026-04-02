@@ -2,7 +2,12 @@ import { useCallback, useRef, useState } from "react";
 
 const CHUNK_SIZE = 1024 * 1024; // 1 MB
 const POLL_INTERVAL_MS = 1500;
-const API_BASE = "/api/recruiter";
+
+// Use VITE_API_URL in production (points to Render backend)
+const API_ROOT = import.meta.env.VITE_API_URL
+  ? String(import.meta.env.VITE_API_URL).replace(/\/$/, "")
+  : "";
+const API_BASE = `${API_ROOT}/api/recruiter`;
 
 export type UploadType = "jd" | "resume";
 

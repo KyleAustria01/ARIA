@@ -19,6 +19,11 @@ import Navbar from "../components/Navbar";
 import { useChunkedUpload } from "../hooks/useChunkedUpload";
 import styles from "./RecruiterPage.module.css";
 
+// Use VITE_API_URL in production (points to Render backend)
+const API_ROOT = import.meta.env.VITE_API_URL
+  ? String(import.meta.env.VITE_API_URL).replace(/\/$/, "")
+  : "";
+
 /* ── Types ─────────────────────────────────────────────── */
 
 interface JdPreview {
@@ -110,7 +115,7 @@ const RecruiterPage: React.FC = () => {
 
   // Fetch sessions on mount
   useEffect(() => {
-    fetch("/api/recruiter/sessions")
+    fetch(`${API_ROOT}/api/recruiter/sessions`)
       .then((r) => r.ok ? r.json() : [])
       .then((data: SessionSummary[]) => setSessions(data))
       .catch(() => {});
@@ -160,7 +165,7 @@ const RecruiterPage: React.FC = () => {
     setPrepareLoading(true);
     setPrepareError(null);
     try {
-      const res = await fetch(`/api/recruiter/prepare/${jdPreview.session_id}`, { method: "POST" });
+      const res = await fetch(`${API_ROOT}/api/recruiter/prepare/${jdPreview.session_id}`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `Prepare failed (${res.status})`);

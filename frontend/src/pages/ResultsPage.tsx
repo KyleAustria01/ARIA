@@ -19,6 +19,11 @@ import {
 import Navbar from "../components/Navbar";
 import styles from "./ResultsPage.module.css";
 
+// Use VITE_API_URL in production (points to Render backend)
+const API_ROOT = import.meta.env.VITE_API_URL
+  ? String(import.meta.env.VITE_API_URL).replace(/\/$/, "")
+  : "";
+
 interface ScoreEntry {
   question: string;
   answer: string;
@@ -79,7 +84,7 @@ const ResultsPage: React.FC = () => {
 
   useEffect(() => {
     if (!sessionId) { setError("No session ID"); setLoading(false); return; }
-    fetch(`/api/results/${sessionId}`)
+    fetch(`${API_ROOT}/api/results/${sessionId}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Session not found (${r.status})`);
         return r.json();
