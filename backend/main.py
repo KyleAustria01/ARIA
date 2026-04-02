@@ -50,7 +50,12 @@ _origins = [
     settings.frontend_url,
     "http://localhost:3000",
     "http://localhost:5173",
+    # Vercel domains
+    "https://frontend-psi-sepia-70.vercel.app",
+    "https://frontend-ggdqelsri-kyles-projects-7f7c2ce7.vercel.app",
 ]
+# Also allow all vercel.app subdomains
+_origins = [o for o in _origins if o]  # filter empty
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,

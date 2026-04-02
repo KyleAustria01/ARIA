@@ -35,6 +35,11 @@ import { useTranscript } from "../hooks/useTranscript";
 import { useInterviewSSE, InterviewPhase } from "../hooks/useInterviewSSE";
 import styles from "./InterviewPage.module.css";
 
+// Use VITE_API_URL in production (points to Render backend)
+const API_ROOT = import.meta.env.VITE_API_URL
+  ? String(import.meta.env.VITE_API_URL).replace(/\/$/, "")
+  : (import.meta.env.PROD ? "https://aria-backend-7hbb.onrender.com" : "");
+
 type PagePhase = "loading" | "prejoin" | "interview" | "done" | "error";
 
 interface ConversationTurn {
@@ -161,7 +166,7 @@ const InterviewPageSSE: React.FC = () => {
   // ── 1. Load pre-join info ────────────────────────────────
   useEffect(() => {
     if (!sessionId) { setPageError("No session ID"); setPagePhase("error"); return; }
-    fetch(`/api/applicant/session/${sessionId}`)
+    fetch(`${API_ROOT}/api/applicant/session/${sessionId}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Session not found (${r.status})`);
         return r.json();
@@ -188,7 +193,7 @@ const InterviewPageSSE: React.FC = () => {
   const handleJoin = async () => {
     if (!sessionId) return;
     try {
-      await fetch(`/api/applicant/join/${sessionId}`, { method: "POST" });
+      await fetch(`${API_ROOT}/api/applicant/join/${sessionId}`, { method: "POST" });
     } catch {
       // non-critical
     }

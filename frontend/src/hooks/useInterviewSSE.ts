@@ -20,7 +20,7 @@ interface UseInterviewSSEOptions {
 
 const API_BASE = import.meta.env.VITE_API_URL
   ? String(import.meta.env.VITE_API_URL).replace(/\/$/, "")
-  : "";
+  : (import.meta.env.PROD ? "https://aria-backend-7hbb.onrender.com" : "");
 
 export function useInterviewSSE(options: UseInterviewSSEOptions) {
   const {

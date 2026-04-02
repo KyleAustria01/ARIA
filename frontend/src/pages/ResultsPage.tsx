@@ -20,9 +20,10 @@ import Navbar from "../components/Navbar";
 import styles from "./ResultsPage.module.css";
 
 // Use VITE_API_URL in production (points to Render backend)
+// Fallback to hardcoded Render URL if env var not set
 const API_ROOT = import.meta.env.VITE_API_URL
   ? String(import.meta.env.VITE_API_URL).replace(/\/$/, "")
-  : "";
+  : (import.meta.env.PROD ? "https://aria-backend-7hbb.onrender.com" : "");
 
 interface ScoreEntry {
   question: string;
