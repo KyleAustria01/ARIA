@@ -5,8 +5,9 @@ interface UseAudioReturn {
   isPlaying: boolean;
   /** Mic input level 0-1 (updated ~30 fps while recording). */
   audioLevel: number;
-  startRecording: (onStop?: (buffer: ArrayBuffer) => void) => Promise<void>;
-  stopRecording: () => void;
+  startRecording: (onChunk?: (buffer: ArrayBuffer) => void) => Promise<void>;
+  /** Stop recording and return the recorded audio blob */
+  stopRecording: () => Promise<Blob | null>;
   playAudio: (buffer: ArrayBuffer) => Promise<void>;
   /** Immediately stop all audio playback and recording. */
   stopAll: () => void;
@@ -17,22 +18,25 @@ export function useAudio(): UseAudioReturn {
   const chunksRef = useRef<BlobPart[]>([]);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
-  const onStopRef = useRef<((buffer: ArrayBuffer) => void) | null>(null);
+  const onChunkRef = useRef<((buffer: ArrayBuffer) => void) | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const levelCtxRef = useRef<AudioContext | null>(null);
   const levelRafRef = useRef<number>(0);
+  const streamRef = useRef<MediaStream | null>(null);
+  const stopResolverRef = useRef<((blob: Blob | null) => void) | null>(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
 
   const startRecording = useCallback(
-    async (onStop?: (buffer: ArrayBuffer) => void) => {
+    async (onChunk?: (buffer: ArrayBuffer) => void) => {
       if (isRecording) return;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       chunksRef.current = [];
-      onStopRef.current = onStop ?? null;
+      onChunkRef.current = onChunk ?? null;
 
       // Set up AnalyserNode for live mic level
       const lCtx = new AudioContext();
@@ -53,7 +57,13 @@ export function useAudio(): UseAudioReturn {
       levelRafRef.current = requestAnimationFrame(tick);
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+          // If streaming chunks (for WebSocket), send each chunk
+          if (onChunkRef.current) {
+            e.data.arrayBuffer().then((buf) => onChunkRef.current?.(buf));
+          }
+        }
       };
 
       recorder.onstop = async () => {
@@ -66,13 +76,16 @@ export function useAudio(): UseAudioReturn {
 
         try {
           const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-          const buffer = await blob.arrayBuffer();
-          onStopRef.current?.(buffer);
+          // Resolve the stopRecording promise with the blob
+          stopResolverRef.current?.(blob);
         } catch (err) {
           console.error("[useAudio] onstop error:", err);
+          stopResolverRef.current?.(null);
         } finally {
           // Always release mic and reset state
-          stream.getTracks().forEach((t) => t.stop());
+          streamRef.current?.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+          stopResolverRef.current = null;
           setIsRecording(false);
         }
       };
@@ -83,21 +96,29 @@ export function useAudio(): UseAudioReturn {
         analyserRef.current = null;
         levelCtxRef.current = null;
         setAudioLevel(0);
-        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        stopResolverRef.current?.(null);
+        stopResolverRef.current = null;
         setIsRecording(false);
       };
 
-      recorder.start();
+      recorder.start(250); // Collect data every 250ms for streaming
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
     },
     [isRecording]
   );
 
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
+  const stopRecording = useCallback((): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      if (mediaRecorderRef.current?.state === "recording") {
+        stopResolverRef.current = resolve;
+        mediaRecorderRef.current.stop();
+      } else {
+        resolve(null);
+      }
+    });
   }, []);
 
   const playAudio = useCallback(async (buffer: ArrayBuffer): Promise<void> => {
@@ -174,6 +195,11 @@ export function useAudio(): UseAudioReturn {
     if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
+    // Clean up stream
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    stopResolverRef.current?.(null);
+    stopResolverRef.current = null;
     setIsRecording(false);
   }, []);
 

@@ -680,3 +680,32 @@ class InterviewEngine:
     def get_state_dict(self) -> dict:
         """Return state as dict for Redis."""
         return self.state.model_dump()
+
+    # ── Serialization ────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        """Serialize engine to dict for Redis persistence."""
+        return {
+            "state": self.state.model_dump(),
+            "skill_queue": self._skill_queue,
+            "current_skill_idx": self._current_skill_idx,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "InterviewEngine":
+        """Deserialize engine from dict."""
+        # Handle case where data is just the state dict (backwards compat)
+        if "state" not in data:
+            state = InterviewState(**data)
+            return cls(state)
+        
+        state = InterviewState(**data["state"])
+        engine = cls(state)
+        
+        # Restore queue state if present
+        if "skill_queue" in data:
+            engine._skill_queue = data["skill_queue"]
+        if "current_skill_idx" in data:
+            engine._current_skill_idx = data["current_skill_idx"]
+        
+        return engine

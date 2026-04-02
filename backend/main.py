@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api import applicant, recruiter
 from backend.api import websocket as ws_router
+from backend.api import interview_sse
 from backend.config import settings
 from backend.redis_client import redis_client
 
@@ -75,6 +76,9 @@ app.include_router(_results, prefix="/api/results", tags=["results"])
 
 # WebSocket router (no /api prefix — nginx routes /ws/* directly)
 app.include_router(ws_router.router, prefix="/ws", tags=["websocket"])
+
+# SSE-based interview API (streamlined alternative to WebSocket)
+app.include_router(interview_sse.router, tags=["interview-sse"])
 
 
 @app.get("/api/health", tags=["health"])

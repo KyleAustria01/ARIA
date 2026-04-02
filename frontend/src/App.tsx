@@ -2,7 +2,7 @@
 import React from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import DocsPage from "./pages/DocsPage";
-import InterviewPage from "./pages/InterviewPage";
+import InterviewPage from "./pages/InterviewPageSSE";
 import RecruiterPage from "./pages/RecruiterPage";
 import ResultsPage from "./pages/ResultsPage";
 import { useTheme } from "./hooks/useTheme";
