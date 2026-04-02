@@ -14,7 +14,8 @@
 - [ ] All functions have type hints
 - [ ] All I/O is async/await
 - [ ] All functions have docstrings
-- [ ] LangGraph nodes are pure functions with typed state
+- [ ] `InterviewEngine` methods tested
+- [ ] No LangGraph/LangChain imports
 - [ ] Tests added/updated (pytest)
 
 ## Frontend (React)
@@ -28,3 +29,4 @@
 ## CI
 
 - [ ] CI passes for both Python (pytest) and React (vitest)
+- [ ] No new lint warnings

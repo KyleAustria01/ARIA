@@ -10,6 +10,11 @@ import {
   faTriangleExclamation,
   faClipboardList,
   faChartSimple,
+  faBriefcase,
+  faLocationDot,
+  faDollarSign,
+  faCalendarCheck,
+  faClock,
 } from "@fortawesome/free-solid-svg-icons";
 import Navbar from "../components/Navbar";
 import styles from "./ResultsPage.module.css";
@@ -37,12 +42,29 @@ interface SessionData {
   candidate_name: string;
   job_title: string;
   company: string;
+  location?: string;
+  employment_type?: string;
+  salary_range?: string;
   scores: ScoreEntry[];
   verdict: Verdict;
   is_complete: boolean;
+  question_count: number;
+  max_questions: number;
+  match_score?: number;
+  matched_skills?: string[];
+  missing_skills?: string[];
+  // Logistics
+  salary_expectation?: string;
+  availability?: string;
+  work_arrangement?: string;
+  notice_period?: string;
 }
 
 const VERDICT_COLOR: Record<string, string> = {
+  "Strong Hire": "var(--success)",
+  "Hire": "#60a5fa",
+  "Maybe": "#fbbf24",
+  "No Hire": "var(--error)",
   "Highly Recommended": "var(--success)",
   Recommended: "#60a5fa",
   "Conditionally Recommended": "#fbbf24",
@@ -133,6 +155,99 @@ const ResultsPage: React.FC = () => {
             )}
           </div>
         </div>
+
+        {/* Logistics Section */}
+        {(data.salary_expectation || data.availability || data.work_arrangement || data.notice_period) && (
+          <div className={styles.card}>
+            <div className={styles.cardHeader}>
+              <FontAwesomeIcon icon={faBriefcase} className={styles.cardIcon} />
+              <h2 className={styles.cardTitle}>Candidate Logistics</h2>
+            </div>
+            <div className={styles.logisticsGrid}>
+              {data.salary_expectation && (
+                <div className={styles.logisticsItem}>
+                  <FontAwesomeIcon icon={faDollarSign} className={styles.logisticsIcon} />
+                  <div>
+                    <p className={styles.logisticsLabel}>Salary Expectation</p>
+                    <p className={styles.logisticsValue}>{data.salary_expectation}</p>
+                    {data.salary_range && (
+                      <p className={styles.logisticsCompare}>JD Range: {data.salary_range}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {data.work_arrangement && (
+                <div className={styles.logisticsItem}>
+                  <FontAwesomeIcon icon={faLocationDot} className={styles.logisticsIcon} />
+                  <div>
+                    <p className={styles.logisticsLabel}>Work Arrangement</p>
+                    <p className={styles.logisticsValue}>{data.work_arrangement}</p>
+                    {(data.location || data.employment_type) && (
+                      <p className={styles.logisticsCompare}>
+                        JD: {[data.employment_type, data.location].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {data.availability && (
+                <div className={styles.logisticsItem}>
+                  <FontAwesomeIcon icon={faCalendarCheck} className={styles.logisticsIcon} />
+                  <div>
+                    <p className={styles.logisticsLabel}>Availability</p>
+                    <p className={styles.logisticsValue}>{data.availability}</p>
+                  </div>
+                </div>
+              )}
+              {data.notice_period && (
+                <div className={styles.logisticsItem}>
+                  <FontAwesomeIcon icon={faClock} className={styles.logisticsIcon} />
+                  <div>
+                    <p className={styles.logisticsLabel}>Notice Period</p>
+                    <p className={styles.logisticsValue}>{data.notice_period}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Match Analysis */}
+        {(data.match_score != null || data.matched_skills?.length || data.missing_skills?.length) && (
+          <div className={styles.card}>
+            <div className={styles.cardHeader}>
+              <FontAwesomeIcon icon={faChartSimple} className={styles.cardIcon} />
+              <h2 className={styles.cardTitle}>Resume-JD Match</h2>
+              {data.match_score != null && (
+                <span className={styles.matchScore} style={{ color: scoreColor(data.match_score / 10) }}>
+                  {data.match_score}%
+                </span>
+              )}
+            </div>
+            <div className={styles.matchGrid}>
+              {data.matched_skills?.length > 0 && (
+                <div>
+                  <p className={styles.matchLabel}>Matched Skills</p>
+                  <div className={styles.skillTags}>
+                    {data.matched_skills.map((s, i) => (
+                      <span key={i} className={styles.skillTagGreen}>{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {data.missing_skills?.length > 0 && (
+                <div>
+                  <p className={styles.matchLabel}>Missing Skills</p>
+                  <div className={styles.skillTags}>
+                    {data.missing_skills.map((s, i) => (
+                      <span key={i} className={styles.skillTagRed}>{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Recommendation */}
         {verdict.recommendation && (

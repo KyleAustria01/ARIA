@@ -405,10 +405,102 @@
   color: #ffffff;
 }
 
+/* ── Logistics Grid ────────────────────────────────────── */
+.logisticsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.logisticsItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.logisticsIcon {
+  font-size: 1rem;
+  color: var(--accent);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.logisticsLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+
+.logisticsValue {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.logisticsCompare {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+  font-style: italic;
+}
+
+/* ── Match Analysis ────────────────────────────────────── */
+.matchScore {
+  font-size: 1.1rem;
+  font-weight: 800;
+  margin-left: auto;
+}
+
+.matchGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.matchLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.skillTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skillTagGreen {
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.skillTagRed {
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--error);
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 680px) {
   .main { padding: 24px 16px; }
   .twoCol { grid-template-columns: 1fr; }
+  .logisticsGrid { grid-template-columns: 1fr; }
   .hero { flex-direction: column; align-items: stretch; }
   .heroRight { align-items: flex-start; }
   .scoreBar { width: 60px; }

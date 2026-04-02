@@ -89,7 +89,9 @@ class RedisClient:
         self._use_fallback = False
 
         try:
-            self._redis = aioredis.from_url(url, decode_responses=True)
+            self._redis = aioredis.from_url(
+                url, decode_responses=True, socket_connect_timeout=3, socket_timeout=3
+            )
         except Exception as e:
             logger.warning(
                 "Redis connection failed during init (%s). Using in-memory fallback.",

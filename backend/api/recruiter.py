@@ -23,11 +23,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from backend.interview_graph.analyze_resume_node import get_match_tier
-from backend.interview_graph.graph_builder import setup_graph
-from backend.interview_graph.state import InterviewState
+from backend.interview.engine import InterviewEngine
+from backend.interview.state import InterviewState, get_match_tier
 from backend.redis_client import redis_client
-from backend.utils.pdf_parser import parse_jd, parse_resume
+from backend.utils.pdf_parser import parse_jd, parse_resume, generate_skill_rules
 
 logger = logging.getLogger(__name__)
 
@@ -400,16 +399,35 @@ async def prepare_interview(session_id: str) -> Dict[str, Any]:
 
 
 async def _run_setup_pipeline(session_id: str, state: InterviewState) -> None:
-    """Run setup_graph (research + merge) in the background.
+    """Run research + build interview context + generate skill rules.
 
+    Replaces the old LangGraph setup_graph with direct engine calls.
     Updates the session in Redis when done so the WebSocket handler
-    picks up the enriched context.
+    picks up the enriched context and skill-specific interview rules.
     """
     try:
-        result_dict: Dict[str, Any] = await setup_graph.ainvoke(state.model_dump())
-        updated = InterviewState(**result_dict)
-        await redis_client.set_json(f"session:{session_id}", updated.model_dump())
-        logger.info("Setup pipeline completed for session %s", session_id)
+        engine = InterviewEngine(state)
+        await engine.run_research()
+        engine.build_interview_context()
+
+        # Generate per-skill interview rules from JD + resume
+        jd_data = {
+            "job_title": state.job_title,
+            "required_skills": state.required_skills,
+            "nice_to_have_skills": state.nice_to_have_skills,
+        }
+        resume_data = {
+            "candidate_name": state.candidate_name,
+            "current_role": state.current_role,
+            "total_experience_years": state.total_experience_years,
+            "skills": state.candidate_skills,
+            "experience": state.experience,
+        }
+        skill_rules = await generate_skill_rules(jd_data, resume_data)
+        engine.state.skill_rules = skill_rules
+
+        await redis_client.set_json(f"session:{session_id}", engine.get_state_dict())
+        logger.info("Setup pipeline completed for session %s (generated %d skill rules)", session_id, len(skill_rules))
     except Exception as exc:
         logger.exception("Setup pipeline failed for session %s: %s", session_id, exc)
         # Session still usable — interview can proceed with JD-only context
@@ -446,7 +464,7 @@ async def list_sessions() -> List[Dict[str, Any]]:
             "company": data.get("company", ""),
             "is_complete": data.get("is_complete", False),
             "question_count": data.get("question_count", 0),
-            "max_questions": data.get("max_questions", 12),
+            "max_questions": data.get("max_questions", 8),
             "match_score": data.get("match_score", 0),
             "interview_started_at": data.get("interview_started_at", 0),
             "interview_ended_at": data.get("interview_ended_at", 0),

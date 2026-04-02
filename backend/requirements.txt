@@ -1,4 +1,4 @@
-# ARIA MVP 2.0 — Backend Requirements
+# ARIA Backend Requirements (v3 — clean, no LangGraph)
 
 # --- Web framework ---
 fastapi==0.110.0
@@ -17,24 +17,17 @@ redis==5.0.4
 # --- PDF parsing ---
 PyMuPDF==1.24.2
 
-# --- LangGraph / LangChain ---
-langchain==0.1.16
-langgraph==0.0.30
-
-# --- LLM providers ---
+# --- LLM providers (all via httpx — no vendor SDKs needed) ---
 httpx==0.27.0
-groq==0.5.0
-google-generativeai==0.5.4
-boto3>=1.34.0          # AWS Bedrock (optional — skipped if AWS keys not set)
+boto3>=1.34.0          # AWS Bedrock (optional — skipped if keys not set)
 
 # --- STT ---
-# Groq Whisper uses the groq package above
 faster-whisper==1.0.3
 
 # --- TTS ---
 edge-tts>=6.1.0
 
-# --- Web search ---
+# --- Web search (optional) ---
 tavily-python==0.3.0
 
 # --- Testing ---

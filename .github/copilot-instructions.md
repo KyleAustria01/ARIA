@@ -2,22 +2,56 @@
 
 ## Project Context
 
-**ARIA** is a voice-based AI interviewer that:
+**ARIA** is a voice-based AI pre-screening interviewer that:
 
-- Accepts a Job Description (JD) PDF upload
-- Parses the PDF using PyMuPDF
-- Supplements the JD with web research via Tavily
-- Conducts a spoken interview with an applicant using OpenAI Whisper (speech-to-text) and ElevenLabs (text-to-speech)
-- Orchestrates the interview using LangGraph with stateful, typed, pure-function nodes
-- Uses Anthropic Claude (claude-sonnet) as the LLM
-- Stores state in Redis
+- Accepts a Job Description (JD) PDF and candidate Resume PDF
+- Parses PDFs using PyMuPDF with LLM-based structured extraction
+- Optionally supplements context with Tavily web research
+- Conducts a spoken pre-screening interview via WebSocket
+- Uses faster-whisper (local, "small" model) for Speech-to-Text with Filipino language support
+- Uses edge-tts (en-US-JennyNeural) for Text-to-Speech — free, no API key
+- Uses a multi-provider LLM fallback chain (Cerebras → Anthropic → Groq → Bedrock → Gemini → Ollama), all called via httpx
+- Stores session state in Redis (with in-memory fallback)
 
 ### Stack
 
-- **Backend:** Python 3.11+, FastAPI, LangGraph, LangChain, PyMuPDF, Tavily API, OpenAI Whisper, ElevenLabs TTS
-- **Frontend:** React (functional components), Web Audio API, WebSockets
-- **State:** Redis
-- **LLM:** Anthropic Claude (claude-sonnet)
+- **Backend:** Python 3.12, FastAPI, PyMuPDF, httpx (direct LLM calls), faster-whisper, edge-tts
+- **Frontend:** React 18 (functional components), Vite, Web Audio API, WebSockets
+- **State:** Redis (Upstash) with in-memory fallback
+- **LLM:** Multi-provider via httpx — primary: Cerebras Qwen 3 235B
+- **No LangGraph. No LangChain.** — Plain Python + direct API calls.
+
+### Architecture
+
+```
+backend/
+  main.py              → FastAPI app, CORS, routers
+  config.py            → Pydantic Settings (.env loader)
+  redis_client.py      → Redis client with in-memory fallback
+  interview/
+    state.py           → InterviewState Pydantic model, ConversationTurn
+    engine.py          → InterviewEngine class (greeting, process_turn, verdict)
+    prompts.py         → ARIA personality + all prompt templates
+  llm/
+    provider.py        → Multi-provider LLM fallback (httpx, no SDKs)
+  audio/
+    stt.py             → Groq Whisper → faster-whisper fallback
+    tts.py             → edge-tts
+  api/
+    recruiter.py       → Upload JD/resume, prepare interview, sessions
+    applicant.py       → Pre-join info, join session, view results
+    websocket.py       → Live interview WebSocket endpoint
+  utils/
+    pdf_parser.py      → PDF extraction + LLM-based structured parsing
+    gender_detector.py → Filipino name-based gender/address detection
+```
+
+### Key Design Decisions
+
+1. **ONE LLM call per turn** — `engine.process_turn(text)` evaluates the answer AND generates ARIA's next response in a single call. Replaces the old 3-call flow (evaluate → route → question).
+2. **No LLM routing** — The decision to continue/end is pure Python logic in `_should_end()`: question_count >= max → end.
+3. **Breadth via prompts** — Instead of domain clustering heuristics, the prompt tells the LLM: "You have N questions left and M uncovered skills. MOVE ON."
+4. **max_questions = 8** — Pre-screening pace, not deep technical interview.
 
 ### Coding Standards
 
@@ -30,43 +64,18 @@
   - Functional components only
   - Custom hooks for audio logic
   - No inline styles
-- **LangGraph nodes:**
-  - Pure functions
-  - Typed state
 - **Environment variables:**
   - Use `.env` files
   - Never hardcode secrets
 - **Audio processing:**
   - Must be non-blocking
 
-### LangGraph Node Overview
-
-1. **upload_jd_node** — Receives and stores uploaded PDF
-2. **parse_pdf_node** — Extracts text using PyMuPDF
-3. **research_node** — Tavily web search to supplement JD
-4. **merge_context_node** — Combines PDF + research into interview context
-5. **intro_node** — ARIA greets and opens the interview
-6. **question_node** — Asks one question at a time based on context + history
-7. **evaluate_answer_node** — Internally scores the answer
-8. **router_node** — Decides: ask more OR finalize
-9. **final_evaluation_node** — Produces structured verdict
-
 ## Agent Instructions
 
 - Always follow the coding standards above
-- Ensure all LangGraph nodes are pure, typed, and stateless except for explicit state transitions
 - Never hardcode API keys or secrets
-- Use async/await for all I/O (Python, React)
-
+- Use async/await for all I/O
 - All audio processing must be non-blocking
-
-## Current Status
-
-- All 48 files generated
-- graph_builder.py added
-- All imports verified
-- All routes verified
-- All placeholders removed
-- App is ready to run
+- Keep the interview engine simple — no over-engineering
 - Write clear docstrings and comments for maintainability
-- Ensure all PRs pass CI (pytest for Python, vitest for React)
+- Ensure all PRs pass CI

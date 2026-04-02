@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     redis_url: str = Field("redis://localhost:6379", env="REDIS_URL")
     redis_ttl_hours: int = Field(24, env="REDIS_TTL_HOURS")
 
-    # LLM providers (fallback: cerebras → groq → bedrock → gemini → ollama)
+    # LLM providers (fallback: anthropic → cerebras → groq → bedrock → gemini → ollama)
+    anthropic_api_key: str = Field("", env="ANTHROPIC_API_KEY")
     cerebras_api_key: str = Field("", env="CEREBRAS_API_KEY")
     groq_api_key: str = Field("", env="GROQ_API_KEY")
     gemini_api_key: str = Field("", env="GEMINI_API_KEY")

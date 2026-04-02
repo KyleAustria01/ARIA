@@ -2,11 +2,12 @@
 LLM provider with automatic fallback chain.
 
 Fallback order:
-1. Cerebras (llama-3.3-70b) — fastest free (~0.3s)
-2. Groq (llama-3.1-8b-instant) — fast free (~0.5s)
-3. AWS Bedrock (Amazon Nova Lite) — paid but highly reliable
-4. Gemini 2.0 Flash — free tier (~1-2s)
-5. Ollama LLaMA 3.2 — local, offline (slow)
+1. Anthropic Claude 3.5 Sonnet — best quality, free tier available
+2. Cerebras (llama-3.3-70b) — fastest free (~0.3s)
+3. Groq (llama-3.3-70b-versatile) — fast free (~0.5s)
+4. AWS Bedrock (Amazon Nova Lite) — paid but highly reliable
+5. Gemini 2.0 Flash — free tier (~1-2s)
+6. Ollama LLaMA 3.2 — local, offline (slow)
 
 Each provider is tried in order. On failure or rate limit,
 the next provider is attempted. If all fail, raises an exception.
@@ -28,18 +29,77 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-CEREBRAS_MODEL = "llama-3.3-70b"
+ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+CEREBRAS_MODEL = "qwen-3-235b-a22b-instruct-2507"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GEMINI_MODEL = "gemini-2.0-flash"
 OLLAMA_MODEL = "llama3.2"
 
 TIMEOUT = httpx.Timeout(90.0, connect=15.0)
-MAX_TOKENS = 1024
+MAX_TOKENS = 2048
 TEMPERATURE = 0.4
+
+# Track which provider handled the last request (for callers to log)
+last_provider_used: str = "none"
 
 
 class LLMProviderError(Exception):
     """Raised when all LLM providers fail."""
+
+
+async def _call_anthropic(messages: list[dict[str, str]], max_tokens: int = MAX_TOKENS) -> str:
+    """Call Anthropic Claude API (Messages API) with the given messages.
+
+    Separates system messages into the top-level 'system' parameter
+    as required by the Anthropic API.
+
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys.
+        max_tokens: Maximum output tokens (default MAX_TOKENS, can override).
+
+    Returns:
+        The assistant's response text.
+
+    Raises:
+        httpx.HTTPStatusError: On non-2xx response.
+    """
+    # Anthropic requires system messages as a separate parameter
+    system_parts: list[str] = []
+    api_messages: list[dict[str, str]] = []
+
+    for msg in messages:
+        if msg["role"] == "system":
+            system_parts.append(msg["content"])
+        else:
+            api_messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Anthropic requires at least one user message
+    if not api_messages:
+        api_messages = [{"role": "user", "content": "Please respond."}]
+
+    body: dict = {
+        "model": ANTHROPIC_MODEL,
+        "messages": api_messages,
+        "max_tokens": max_tokens,
+        "temperature": TEMPERATURE,
+    }
+    if system_parts:
+        body["system"] = "\n\n".join(system_parts)
+
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": settings.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        # Response format: {"content": [{"type": "text", "text": "..."}]}
+        return data["content"][0]["text"]
 
 
 async def _call_cerebras(messages: list[dict[str, str]]) -> str:
@@ -255,6 +315,7 @@ async def llm_invoke(messages: list[dict[str, str]]) -> str:
         LLMProviderError: If all providers fail.
     """
     providers: list[tuple[str, bool, Any]] = [
+        ("anthropic", bool(settings.anthropic_api_key), _call_anthropic),
         ("cerebras", bool(settings.cerebras_api_key), _call_cerebras),
         ("groq", bool(settings.groq_api_key), _call_groq),
         ("bedrock", bool(settings.aws_access_key_id and settings.aws_secret_access_key), _call_bedrock),
@@ -271,7 +332,24 @@ async def llm_invoke(messages: list[dict[str, str]]) -> str:
         try:
             result = await call_fn(messages)
             if result and result.strip():
-                logger.info("LLM response from %s (%d chars)", name, len(result))
+                global last_provider_used
+                last_provider_used = name
+                model_name = {
+                    "anthropic": ANTHROPIC_MODEL,
+                    "cerebras": CEREBRAS_MODEL,
+                    "groq": GROQ_MODEL,
+                    "bedrock": settings.aws_bedrock_model_id,
+                    "gemini": GEMINI_MODEL,
+                    "ollama": OLLAMA_MODEL,
+                }.get(name, name)
+                logger.info(
+                    "\n" + "=" * 60 + "\n"
+                    "  LLM PROVIDER: %s\n"
+                    "  MODEL: %s\n"
+                    "  RESPONSE LENGTH: %d chars\n"
+                    + "=" * 60,
+                    name.upper(), model_name, len(result),
+                )
                 return result.strip()
             logger.warning("%s returned empty response, trying next", name)
         except httpx.HTTPStatusError as e:

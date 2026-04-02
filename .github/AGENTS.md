@@ -1,66 +1,56 @@
-# LangGraph Node Contracts & Responsibilities — ARIA
+# ARIA Interview Engine — Module Contracts
 
-## Node Contracts
+## Architecture
 
-All nodes must be **pure functions** with **typed state**. Each node receives the current state and returns the next state. No side effects except for explicit I/O nodes (e.g., upload, TTS, STT).
+ARIA uses a clean `InterviewEngine` class (no LangGraph, no LangChain).
+Each candidate turn requires exactly **ONE LLM call** that evaluates the
+answer AND generates ARIA's next spoken response.
 
-### 1. upload_jd_node
+## Module Contracts
 
-- **Input:** File upload (PDF)
-- **Output:** File reference/path in state
-- **Contract:** Accepts PDF, stores securely, returns reference
+### `backend/interview/state.py`
 
-### 2. parse_pdf_node
+- **InterviewState** — Pydantic model holding all session data
+- **ConversationTurn** — Role + content + timestamp
+- **get_match_tier(score)** — Convert numeric score to tier label
 
-- **Input:** File reference
-- **Output:** Extracted text
-- **Contract:** Uses PyMuPDF to extract all text from PDF
+### `backend/interview/engine.py` — InterviewEngine
 
-### 3. research_node
+| Method | Input | Output | LLM Calls |
+|--------|-------|--------|-----------|
+| `generate_greeting()` | — | `str` (greeting text) | 1 |
+| `process_turn(text)` | candidate text | `TurnResult(aria_text, score_entry, should_end)` | 1 |
+| `build_closing_questions()` | — | `list[str]` (logistics questions) | 0 |
+| `extract_logistics()` | — | `dict` (structured logistics) | 1 |
+| `generate_verdict()` | — | `dict` (full verdict) | 1 |
+| `run_research()` | — | updates `state.research_context` | 0 (Tavily) |
+| `build_interview_context()` | — | updates `state.interview_context` | 0 |
+| `get_state_dict()` | — | `dict` (for Redis storage) | 0 |
 
-- **Input:** Extracted JD text
-- **Output:** Supplementary research (string)
-- **Contract:** Uses Tavily API to fetch relevant web context
+### `backend/interview/prompts.py`
 
-### 4. merge_context_node
+- **ARIA_SYSTEM** — System prompt with personality, rules, multilingual support
+- **build_greeting_prompt(state)** — Opening greeting
+- **build_turn_prompt(state, text, covered, uncovered, is_intro)** — Combined evaluate+respond
+- **build_verdict_prompt(state, avg_score)** — Final evaluation
 
-- **Input:** JD text + research
-- **Output:** Combined interview context
-- **Contract:** Merges and deduplicates context for interview
+### `backend/llm/provider.py`
 
-### 5. intro_node
+- **llm_invoke(messages)** — Multi-provider fallback chain via httpx
+- **llm_invoke_json(messages)** — Same but requests JSON output
+- Providers: Cerebras → Anthropic → Groq → Bedrock → Gemini → Ollama
 
-- **Input:** Interview context
-- **Output:** Greeting message (string)
-- **Contract:** Generates ARIA's spoken greeting
+### `backend/api/websocket.py`
 
-### 6. question_node
-
-- **Input:** Interview context + history
-- **Output:** Next question (string)
-- **Contract:** Generates one question at a time, context-aware
-
-### 7. evaluate_answer_node
-
-- **Input:** Question + answer
-- **Output:** Score/feedback (structured)
-- **Contract:** Scores answer using LLM, returns feedback
-
-### 8. router_node
-
-- **Input:** Interview state
-- **Output:** Next node decision
-- **Contract:** Decides whether to continue or finalize
-
-### 9. final_evaluation_node
-
-- **Input:** All answers + scores
-- **Output:** Structured verdict (JSON)
-- **Contract:** Produces final evaluation and summary
+- WebSocket at `/interview/{session_id}`
+- Flow: greeting → intro → loop(audio → transcribe → process_turn → TTS) → closing → verdict
+- Idle detection (60s check-in, 180s timeout)
+- Reconnection support
 
 ## General Requirements
 
-- All nodes must be pure, stateless (except for explicit state transitions)
 - Type hints required for all inputs/outputs
-- Docstrings required for all node functions
-- No direct I/O except for designated nodes
+- Docstrings required for all functions
+- async/await for all I/O
+- No LangGraph, no LangChain
+- State mutations only through the engine
