@@ -53,6 +53,8 @@ const Interview: React.FC = () => {
   const waveformRef = useRef<HTMLCanvasElement>(null);
   const recordingStartTime = useRef<number>(0);
   const [shortRecordingWarning, setShortRecordingWarning] = useState(false);
+  // Verdict is held here until all queued audio finishes playing
+  const pendingVerdictRef = useRef<any>(null);
 
 
 
@@ -119,7 +121,15 @@ const Interview: React.FC = () => {
       if (audioQueue.current.length > 0) {
         playNextAudio();
       } else {
-        // All audio finished — re-enable mic
+        // All audio finished — check if a verdict was queued while audio played
+        if (pendingVerdictRef.current !== null) {
+          setVerdict(pendingVerdictRef.current);
+          pendingVerdictRef.current = null;
+          setStatus('complete');
+          setStep('verdict');
+          return;
+        }
+        // Re-enable mic for the next turn
         setStatus('recording_ready');
         setProcessing(false);
         // Always read the current ws from the ref, never from a closure
@@ -150,6 +160,11 @@ const Interview: React.FC = () => {
         console.warn('[ARIA] Status stuck on', status, '— force resetting to recording_ready');
         setStatus('recording_ready');
         setProcessing(false);
+        // Notify backend that the frontend is ready even if audio failed
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ready' }));
+        }
       }, STUCK_TIMEOUT);
       return () => clearTimeout(t);
     }
@@ -221,9 +236,15 @@ const Interview: React.FC = () => {
             break;
 
           case 'verdict':
-            setVerdict(msg.data || msg.text);
-            setStatus('complete');
-            setStep('verdict');
+            // Don't transition immediately — wait for all queued audio to finish
+            // so the closing farewell speech and any logistics audio plays fully.
+            if (isPlaying.current || audioQueue.current.length > 0) {
+              pendingVerdictRef.current = msg.data || msg.text;
+            } else {
+              setVerdict(msg.data || msg.text);
+              setStatus('complete');
+              setStep('verdict');
+            }
             break;
 
           case 'error':
@@ -307,11 +328,12 @@ const Interview: React.FC = () => {
           return;
         }
 
-        // Brief review window before auto-submit
+        // Brief review window before auto-submit — 4 s gives candidates time
+        // to cancel if they stopped recording mid-sentence accidentally.
         setAudioBlob(blob);
         setStatus('review');
 
-        // Auto-submit after 1.5 s — user can cancel during this window
+        // Auto-submit after 4 s — user can cancel during this window
         autoSubmitTimer.current = setTimeout(() => {
           if (wsRef.current?.readyState === WebSocket.OPEN) {
             setProcessing(true);
@@ -322,7 +344,7 @@ const Interview: React.FC = () => {
               setAudioBlob(null);
             }, 100);
           }
-        }, 1500);
+        }, 4000);
       };
 
       recorder.start(250); // collect in 250 ms chunks
@@ -455,7 +477,7 @@ const Interview: React.FC = () => {
           {/* Auto-submit review bar */}
           {status === 'review' && (
             <div className={styles.autoSubmitBar}>
-              <span>Sending answer in 1.5 s…</span>
+              <span>Sending answer in 4 s…</span>
               <button className={styles.cancelBtn} onClick={cancelAutoSubmit}>
                 Cancel &amp; Re-record
               </button>
